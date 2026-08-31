@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canvas Workspace</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- jsPDF for A4 Vector PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <div class="toolbar-left">
+      <!-- Canvas Mode Switcher -->
+      <div class="view-mode-toggle">
+        <button id="viewInfiniteBtn" class="mode-toggle-btn active" title="Infinite Canvas Mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4Zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4Z"/></svg>
+          <span>Infinite</span>
+        </button>
+        <button id="viewA4Btn" class="mode-toggle-btn" title="A4 Multi-Page Mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>A4 Pages</span>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Tools -->
+      <button id="drawBtn" class="tool-btn active" title="Doodle (D)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+      </button>
+      <button id="eraserBtn" class="tool-btn" title="Eraser (E)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+      </button>
+      <button id="textBtn" class="tool-btn" title="Text (T)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/></svg>
+      </button>
+      <button id="panBtn" class="tool-btn" title="Hand / Pan (H or Space+Drag)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>
+      </button>
+      <label for="imgUpload" class="upload-label" title="Upload Image">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+      </label>
+      <input type="file" id="imgUpload" accept="image/*" />
+      <button id="exportBtn" class="tool-btn" title="Export Canvas">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+      </button>
+    </div>
+
+    <div class="toolbar-right">
+      <div id="zoomControls" class="zoom-controls">
+        <button id="zoomOutBtn" class="tool-btn-sm" title="Zoom Out (Ctrl -)">−</button>
+        <button id="zoomLevelBtn" class="zoom-indicator" title="Reset Zoom (Ctrl 0)">100%</button>
+        <button id="zoomInBtn" class="tool-btn-sm" title="Zoom In (Ctrl +)">+</button>
+      </div>
+      <div class="divider"></div>
+      <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+      </button>
+      <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)" disabled>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 1. Infinite Canvas Viewport -->
+  <div id="canvas-container" class="mode-draw">
+    <div id="canvas-world">
+      <svg id="strokes-layer" class="strokes-layer"></svg>
+      <div id="elements-container" class="elements-container"></div>
+    </div>
+    <canvas id="draw-overlay" class="draw-overlay"></canvas>
+  </div>
+
+  <!-- 2. A4 Multi-Page Viewport -->
+  <div id="a4-container" class="a4-viewport" style="display: none;">
+    <div id="pages-wrapper"></div>
+    <div class="page-controls">
+      <button id="addPageBtn" class="add-page-btn">+ Add A4 Page</button>
+    </div>
+  </div>
+
+  <!-- Hint Overlay -->
+  <div id="hint-overlay" class="hint-overlay">
+    <span>💡 Text Tool (T) • Doodle (D) • Eraser (E) • Space + Drag to Pan • Scroll to Zoom</span>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">
+    <span id="toastMsg"></span>
+  </div>
+
+  <!-- 1. Infinite Canvas Export Modal -->
+  <div id="infiniteExportModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Export Infinite Canvas</h3>
+        <button id="closeInfiniteModalBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-notice">
+        <div class="notice-icon">ℹ️</div>
+        <div class="notice-text">
+          <strong>PDF is not suitable for Infinite Canvas</strong>
+          <span>PDF files require fixed page boundaries. Your unbounded infinite canvas will be exported as a standalone, self-contained <strong>interactive HTML document</strong>.</span>
+        </div>
+      </div>
+      <div class="modal-feature-list">
+        <div class="feature-item">✨ Vector-sharp SVG doodles at any zoom level</div>
+        <div class="feature-item">🖼️ Embedded full-resolution images with transforms</div>
+        <div class="feature-item">🔗 Clickable text notes and formatted web links</div>
+        <div class="feature-item">🔍 Built-in offline Pan & Zoom interactive viewer</div>
+      </div>
+      <div class="modal-actions">
+        <button id="downloadInfiniteHtmlBtn" class="btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          <span>Download Standalone HTML</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. A4 Multi-Page Export Modal -->
+  <div id="a4ExportModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Export A4 Document</h3>
+        <button id="closeA4ModalBtn" class="modal-close-btn">&times;</button>
+      </div>
+      <p class="modal-subtitle">Choose your preferred export format for the multi-page document:</p>
+      <div class="modal-options">
+        <button id="exportPdfOption" class="export-option-card">
+          <div class="option-icon pdf-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" x2="15" y1="15" y2="15"/></svg>
+          </div>
+          <div class="option-text">
+            <strong>Vector A4 PDF (.pdf)</strong>
+            <span>Multi-page print-ready vector PDF document</span>
+          </div>
+        </button>
+
+        <button id="exportHtmlOption" class="export-option-card">
+          <div class="option-icon html-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </div>
+          <div class="option-text">
+            <strong>Interactive HTML (.html)</strong>
+            <span>Self-contained multi-page web document with active links</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="export.js"></script>
+</body>
+</html>

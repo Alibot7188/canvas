@@ -1,0 +1,870 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #18191a;
+  color: #efefef;
+  overflow: hidden;
+}
+
+/* ==========================================
+   1. FIXED HEADER & RESPONSIVE TOOLBAR
+   ========================================== */
+.toolbar {
+  height: 52px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #2d2d2d;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  z-index: 1000;
+  flex-shrink: 0;
+  width: 100%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  gap: 8px;
+}
+
+.toolbar-left, .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.divider {
+  width: 1px;
+  height: 22px;
+  background: #383838;
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* View Mode Switcher */
+.view-mode-toggle {
+  display: flex;
+  background: #141517;
+  border: 1px solid #383838;
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.mode-toggle-btn {
+  background: transparent;
+  color: #999;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.mode-toggle-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mode-toggle-btn.active {
+  background: #2a2b2e;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Tool Buttons */
+.toolbar .tool-btn, .toolbar .upload-label {
+  background: #282828;
+  color: #e0e0e0;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.toolbar .tool-btn:hover:not(:disabled), .toolbar .upload-label:hover {
+  background: #333;
+  border-color: #555;
+  color: #fff;
+}
+
+.toolbar .tool-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.toolbar .tool-btn.active {
+  background: orange;
+  color: #111;
+  border-color: darkorange;
+  box-shadow: 0 0 10px rgba(255, 165, 0, 0.35);
+}
+
+#imgUpload {
+  display: none;
+}
+
+/* Zoom Controls Widget */
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  background: #282828;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.tool-btn-sm {
+  background: transparent;
+  color: #e0e0e0;
+  border: none;
+  width: 28px;
+  height: 100%;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.tool-btn-sm:hover {
+  background: #383838;
+  color: #fff;
+}
+
+.zoom-indicator {
+  background: transparent;
+  color: #ccc;
+  border: none;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 44px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.zoom-indicator:hover {
+  color: orange;
+}
+
+/* ==========================================
+   2. INFINITE CANVAS VIEWPORT
+   ========================================== */
+#canvas-container {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 52px);
+  overflow: hidden;
+  background-color: #141517;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 24px 24px;
+  user-select: none;
+  touch-action: none;
+}
+
+#canvas-container.mode-draw { cursor: crosshair; }
+#canvas-container.mode-text { cursor: text; }
+#canvas-container.mode-eraser { cursor: cell; }
+#canvas-container.mode-pan { cursor: grab; }
+#canvas-container.mode-panning { cursor: grabbing !important; }
+#canvas-container.mode-idle { cursor: default; }
+
+#canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.strokes-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  z-index: 10;
+}
+
+.elements-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.draw-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* ==========================================
+   3. A4 MULTI-PAGE VIEWPORT
+   ========================================== */
+.a4-viewport {
+  flex: 1;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y pinch-zoom;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+  width: 100%;
+  background-color: #2b2e30;
+}
+
+#pages-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+}
+
+.page-slot {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 794px;
+  height: 1123px;
+  margin: 0 auto;
+}
+
+.a4-page {
+  position: absolute;
+  top: 0;
+  width: 794px;
+  height: 1123px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  user-select: none;
+  transform-origin: top center;
+}
+
+.page-elements-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.page-stroke-group {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.page-draw-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.page-draw-overlay.active {
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.page-draw-overlay.active.text-mode {
+  cursor: text;
+}
+
+.page-draw-overlay.active.eraser {
+  cursor: cell;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.page-controls {
+  margin: 20px 0 40px 0;
+}
+
+.add-page-btn {
+  background: #222;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 20px;
+  padding: 10px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.add-page-btn:hover {
+  background: #333;
+  border-color: orange;
+}
+
+/* ==========================================
+   4. TEXT & IMAGE NODES
+   ========================================== */
+.text-wrapper {
+  position: absolute;
+  min-width: 60px;
+  max-width: 800px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  pointer-events: auto;
+  background: rgba(30, 30, 30, 0.75);
+  backdrop-filter: blur(4px);
+  padding: 4px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.a4-page .text-wrapper {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.text-wrapper.selected {
+  border-color: rgba(255, 165, 0, 0.8);
+  box-shadow: 0 0 10px rgba(255, 165, 0, 0.2);
+}
+
+.text-grip {
+  position: absolute;
+  left: -24px;
+  top: 2px;
+  width: 22px;
+  height: 26px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.text-wrapper:hover .text-grip,
+.text-wrapper.selected .text-grip {
+  opacity: 1;
+}
+
+.floating-text {
+  min-height: 28px;
+  padding: 4px 6px;
+  font-size: 16px;
+  line-height: 26px;
+  color: #f0f0f0;
+  outline: none;
+  word-break: break-word;
+  white-space: pre-wrap;
+  cursor: text;
+  user-select: text;
+}
+
+.a4-page .floating-text {
+  color: #111;
+}
+
+.floating-text a {
+  color: #4da3ff;
+  text-decoration: underline;
+  cursor: pointer;
+  pointer-events: auto;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.a4-page .floating-text a {
+  color: #0066cc;
+}
+
+.floating-text a:hover {
+  color: #80bdff;
+}
+
+/* Images */
+.img-wrapper {
+  position: absolute;
+  user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  cursor: move;
+  border: 1px dashed transparent;
+  transform-origin: center center;
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.img-wrapper.selected {
+  border-color: orange;
+  box-shadow: 0 0 12px rgba(255, 165, 0, 0.4);
+}
+
+.img-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+  border-radius: 4px;
+}
+
+/* Handles */
+.handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border: 2px solid orange;
+  display: none;
+  z-index: 25;
+  border-radius: 2px;
+}
+
+.img-wrapper.selected .handle {
+  display: block;
+}
+
+.handle.tl { top: -6px; left: -6px; cursor: nwse-resize; }
+.handle.tr { top: -6px; right: -6px; cursor: nesw-resize; }
+.handle.bl { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.handle.br { bottom: -6px; right: -6px; cursor: nwse-resize; }
+.handle.tc { top: -6px; left: calc(50% - 6px); cursor: ns-resize; }
+.handle.bc { bottom: -6px; left: calc(50% - 6px); cursor: ns-resize; }
+.handle.ml { top: calc(50% - 6px); left: -6px; cursor: ew-resize; }
+.handle.mr { top: calc(50% - 6px); right: -6px; cursor: ew-resize; }
+
+.handle.rot {
+  top: -24px;
+  left: calc(50% - 6px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: orange;
+  border: 2px solid #fff;
+  cursor: grab;
+}
+
+.handle.rot::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 3px;
+  width: 2px;
+  height: 12px;
+  background: orange;
+}
+
+/* Hint HUD */
+.hint-overlay {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(26, 26, 26, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  padding: 8px 18px;
+  border-radius: 20px;
+  font-size: 12px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  transition: opacity 0.3s ease;
+  white-space: nowrap;
+}
+
+/* Toast Notification */
+.toast {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: #25282c;
+  color: #fff;
+  border: 1px solid #454950;
+  border-left: 4px solid orange;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s ease;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+/* ==========================================
+   5. EXPORT MODAL OVERLAYS
+   ========================================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3000;
+  padding: 16px;
+}
+
+.modal-card {
+  background: #222428;
+  border: 1px solid #383a40;
+  border-radius: 12px;
+  padding: 22px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-header h3 {
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.modal-close-btn:hover {
+  color: #fff;
+}
+
+.modal-subtitle {
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 18px;
+}
+
+/* Notice Box for Infinite Canvas */
+.modal-notice {
+  background: rgba(255, 165, 0, 0.08);
+  border: 1px solid rgba(255, 165, 0, 0.25);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.notice-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice-text strong {
+  font-size: 13px;
+  color: #ffb347;
+}
+
+.notice-text span {
+  font-size: 12px;
+  color: #ccc;
+  line-height: 18px;
+}
+
+.modal-feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #1a1c20;
+  border: 1px solid #30333a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+}
+
+.feature-item {
+  font-size: 12px;
+  color: #bbb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-primary {
+  background: orange;
+  color: #111;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.btn-primary:hover {
+  background: #ff9800;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 165, 0, 0.35);
+}
+
+.modal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.export-option-card {
+  background: #2c2f35;
+  border: 1px solid #3e424a;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  color: #fff;
+}
+
+.export-option-card:hover {
+  background: #363a42;
+  border-color: orange;
+  transform: translateY(-1px);
+}
+
+.option-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pdf-icon {
+  background: rgba(255, 68, 68, 0.15);
+  color: #ff5252;
+}
+
+.html-icon {
+  background: rgba(0, 180, 255, 0.15);
+  color: #00b4ff;
+}
+
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.option-text strong {
+  font-size: 14px;
+  color: #f5f5f5;
+}
+
+.option-text span {
+  font-size: 12px;
+  color: #9ba1a6;
+}
+
+/* ==========================================
+   6. MOBILE & TABLET RESPONSIVENESS
+   ========================================== */
+@media (max-width: 820px) {
+  .hint-overlay {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .toolbar {
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .toolbar-left, .toolbar-right {
+    gap: 4px;
+  }
+
+  .mode-toggle-btn span {
+    display: none;
+  }
+
+  .mode-toggle-btn {
+    padding: 6px 8px;
+  }
+
+  .toolbar .tool-btn, .toolbar .upload-label {
+    width: 34px;
+    height: 34px;
+  }
+
+  .zoom-controls {
+    height: 34px;
+  }
+
+  .zoom-indicator {
+    padding: 0 4px;
+    min-width: 36px;
+    font-size: 11px;
+  }
+
+  .tool-btn-sm {
+    width: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .toolbar {
+    height: 48px;
+    padding: 0 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .toolbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .divider {
+    margin: 0 1px;
+  }
+
+  .toolbar .tool-btn, .toolbar .upload-label {
+    width: 32px;
+    height: 32px;
+  }
+
+  .toolbar .tool-btn svg, .toolbar .upload-label svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .zoom-controls {
+    height: 32px;
+  }
+
+  .tool-btn-sm {
+    width: 22px;
+    font-size: 14px;
+  }
+
+  .zoom-indicator {
+    min-width: 32px;
+    font-size: 10px;
+    padding: 0 2px;
+  }
+
+  .modal-card {
+    padding: 16px;
+  }
+
+  .export-option-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .option-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .option-text strong {
+    font-size: 13px;
+  }
+
+  .option-text span {
+    font-size: 11px;
+  }
+}
