@@ -1,3 +1,8 @@
+// ==========================================
+// UNIFIED CANVAS WORKSPACE ENGINE
+// (Unified Architecture for Infinite & A4)
+// ==========================================
+
 // --- DOM REFERENCES ---
 const viewInfiniteBtn = document.getElementById('viewInfiniteBtn');
 const viewA4Btn = document.getElementById('viewA4Btn');
@@ -8,10 +13,7 @@ const pagesWrapper = document.getElementById('pages-wrapper');
 const addPageBtn = document.getElementById('addPageBtn');
 
 const canvasWorld = document.getElementById('canvas-world');
-const strokesLayer = document.getElementById('strokes-layer');
 const elementsContainer = document.getElementById('elements-container');
-const drawOverlay = document.getElementById('draw-overlay');
-const drawOverlayCtx = drawOverlay.getContext('2d');
 
 const drawBtn = document.getElementById('drawBtn');
 const eraserBtn = document.getElementById('eraserBtn');
@@ -112,65 +114,66 @@ function cleanMatchedUrl(rawUrl, isEmail) {
   }
 
   let href = cleanUrl;
-  if (!/^(?:https?|ftp):\/\//i.test(href)) {
-    href = `https://${cleanUrl}`;
+  if (!/^https?:\/\//i.test(href) && !/^ftp:\/\//i.test(href)) {
+    href = 'https://' + href;
   }
 
   return { cleanUrl, trailingJunk, href };
 }
 
-function parseLinks(rawHtml) {
-  const temp = document.createElement('div');
-  temp.innerHTML = rawHtml;
+function parseLinks(html) {
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
 
-  function traverse(node) {
+  function traverseAndReplace(node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
+      const text = node.nodeValue;
+      if (!text || !COMBINED_URL_REGEX.test(text)) return;
       COMBINED_URL_REGEX.lastIndex = 0;
-      if (COMBINED_URL_REGEX.test(text)) {
-        COMBINED_URL_REGEX.lastIndex = 0;
-        const frag = document.createDocumentFragment();
-        let lastIndex = 0;
-        let match;
 
-        while ((match = COMBINED_URL_REGEX.exec(text)) !== null) {
-          const matchStart = match.index;
-          const matchEnd = COMBINED_URL_REGEX.lastIndex;
-          const matchedString = match[0];
-          const isEmail = Boolean(match[1]);
+      const frag = document.createDocumentFragment();
+      let lastIndex = 0;
+      let match;
 
-          const { cleanUrl, trailingJunk, href } = cleanMatchedUrl(matchedString, isEmail);
-          if (!cleanUrl) continue;
+      while ((match = COMBINED_URL_REGEX.exec(text)) !== null) {
+        const rawMatch = match[0];
+        const matchIndex = match.index;
+        const isEmail = Boolean(match[1]);
 
-          if (matchStart > lastIndex) {
-            frag.appendChild(document.createTextNode(text.substring(lastIndex, matchStart)));
-          }
-
-          const a = document.createElement('a');
-          a.href = href;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          a.textContent = cleanUrl;
-          frag.appendChild(a);
-
-          if (trailingJunk) {
-            frag.appendChild(document.createTextNode(trailingJunk));
-          }
-          lastIndex = matchEnd;
+        if (matchIndex > lastIndex) {
+          frag.appendChild(document.createTextNode(text.substring(lastIndex, matchIndex)));
         }
 
-        if (lastIndex < text.length) {
-          frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+        const { cleanUrl, trailingJunk, href } = cleanMatchedUrl(rawMatch, isEmail);
+
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'canvas-link';
+        a.textContent = cleanUrl;
+        frag.appendChild(a);
+
+        if (trailingJunk) {
+          frag.appendChild(document.createTextNode(trailingJunk));
         }
-        node.replaceWith(frag);
+
+        lastIndex = matchIndex + rawMatch.length;
       }
-    } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'A') {
-      Array.from(node.childNodes).forEach(traverse);
+
+      if (lastIndex < text.length) {
+        frag.appendChild(document.createTextNode(text.substring(lastIndex)));
+      }
+
+      node.parentNode.replaceChild(frag, node);
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.tagName.toLowerCase() === 'a') return;
+      Array.from(node.childNodes).forEach(traverseAndReplace);
     }
   }
 
-  Array.from(temp.childNodes).forEach(traverse);
-  return temp.innerHTML;
+  Array.from(tempDiv.childNodes).forEach(traverseAndReplace);
+  return tempDiv.innerHTML;
 }
 
 function getCaretCharacterOffsetWithin(element) {
@@ -187,11 +190,8 @@ function getCaretCharacterOffsetWithin(element) {
 }
 
 function setCaretPosition(element, offset) {
-  let charCount = 0;
   const range = document.createRange();
-  range.setStart(element, 0);
-  range.collapse(true);
-
+  let charCount = 0;
   const nodeStack = [element];
   let node;
   let found = false;
@@ -238,13 +238,11 @@ function applyLinkParsing(box) {
 // 2. TOOLBAR MODES & SELECTION
 // ==========================================
 function updateContainerCursor() {
-  if (canvasView === 'infinite') {
-    canvasContainer.className = isPanning ? 'mode-panning' : `mode-${currentMode}`;
-  } else {
-    document.querySelectorAll('.page-draw-overlay').forEach((ov) => {
-      ov.className = `page-draw-overlay ${currentMode === 'draw' ? 'active' : currentMode === 'eraser' ? 'active eraser' : currentMode === 'text' ? 'active text-mode' : ''}`;
-    });
-  }
+  const modeClass = isPanning ? 'mode-panning' : `mode-${currentMode}`;
+  canvasContainer.className = modeClass;
+  document.querySelectorAll('.a4-page').forEach((p) => {
+    p.className = `a4-page ${modeClass}`;
+  });
 }
 
 function setMode(mode) {
@@ -257,18 +255,791 @@ function setMode(mode) {
   if (mode !== 'idle') deselectAll();
 }
 
+// Mode Button Click Event Listeners
+drawBtn.addEventListener('click', () => setMode('draw'));
+eraserBtn.addEventListener('click', () => setMode('eraser'));
+textBtn.addEventListener('click', () => setMode('text'));
+panBtn.addEventListener('click', () => setMode('pan'));
+
 function deselectAll() {
-  document.querySelectorAll('.img-wrapper').forEach((el) => el.classList.remove('selected'));
-  document.querySelectorAll('.text-wrapper').forEach((el) => el.classList.remove('selected'));
+  document.querySelectorAll('.img-wrapper.selected, .text-wrapper.selected').forEach((el) => el.classList.remove('selected'));
 }
 
-drawBtn.addEventListener('click', () => setMode(currentMode === 'draw' ? 'idle' : 'draw'));
-eraserBtn.addEventListener('click', () => setMode(currentMode === 'eraser' ? 'idle' : 'eraser'));
-textBtn.addEventListener('click', () => setMode(currentMode === 'text' ? 'idle' : 'text'));
-panBtn.addEventListener('click', () => setMode(currentMode === 'pan' ? 'idle' : 'pan'));
+// ==========================================
+// 2.5 COMPLETE LAYER STACKING SYSTEM
+// (DOM order and z-index synchronized)
+// ==========================================
+function normalizeZIndices(container) {
+  if (!container) return;
+  const children = Array.from(container.children);
+  children.forEach((child, index) => {
+    child.style.zIndex = ((index + 1) * 10).toString();
+  });
+}
+
+function assignNextZIndex(container, el) {
+  if (!container) return 10;
+  let maxZ = 0;
+  Array.from(container.children).forEach((child) => {
+    if (child !== el) {
+      const z = parseInt(child.style.zIndex, 10);
+      if (!isNaN(z) && z > maxZ) maxZ = z;
+    }
+  });
+  const nextZ = Math.max(10, maxZ + 10);
+  if (el) el.style.zIndex = nextZ.toString();
+  return nextZ;
+}
+
+function bringToFront(container, el) {
+  if (!container || !el) return;
+  container.appendChild(el);
+  normalizeZIndices(container);
+}
+
+function sendToBack(container, el) {
+  if (!container || !el) return;
+  container.insertBefore(el, container.firstChild);
+  normalizeZIndices(container);
+}
+
+function bringForward(container, el) {
+  if (!container || !el) return;
+  const next = el.nextElementSibling;
+  if (next) {
+    container.insertBefore(next, el);
+    normalizeZIndices(container);
+  }
+}
+
+function sendBackward(container, el) {
+  if (!container || !el) return;
+  const prev = el.previousElementSibling;
+  if (prev) {
+    container.insertBefore(el, prev);
+    normalizeZIndices(container);
+  }
+}
+
+function createLayerBar(wrapper, ctx) {
+  const bar = document.createElement('div');
+  bar.className = 'element-layer-bar';
+
+  bar.innerHTML = `
+    <button type="button" class="layer-btn-action" data-action="front" title="Bring to Front (Shift + ])">⤒ Front</button>
+    <button type="button" class="layer-btn-action" data-action="forward" title="Bring Forward (])">⇡ Forward</button>
+    <button type="button" class="layer-btn-action" data-action="backward" title="Send Backward ([)">⇣ Backward</button>
+    <button type="button" class="layer-btn-action" data-action="back" title="Send to Back (Shift + [)">⤓ Back</button>
+    <button type="button" class="layer-btn-action layer-btn-delete" data-action="delete" title="Delete element (Del)">✕</button>
+  `;
+
+  bar.addEventListener('mousedown', (e) => e.stopPropagation());
+  bar.addEventListener('pointerdown', (e) => e.stopPropagation());
+  bar.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: false });
+
+  bar.querySelectorAll('.layer-btn-action').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const container = wrapper.parentElement;
+      if (!container) return;
+
+      if (action === 'front') {
+        bringToFront(container, wrapper);
+      } else if (action === 'forward') {
+        bringForward(container, wrapper);
+      } else if (action === 'backward') {
+        sendBackward(container, wrapper);
+      } else if (action === 'back') {
+        sendToBack(container, wrapper);
+      } else if (action === 'delete') {
+        wrapper.remove();
+      }
+      if (ctx && ctx.saveState) ctx.saveState();
+    });
+  });
+
+  return bar;
+}
+
+function createDoodleLayer(container, paths = []) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const isPage = container.classList.contains('page-elements-container');
+  if (isPage) {
+    svg.setAttribute('class', 'page-stroke-group');
+    svg.setAttribute('viewBox', `0 0 ${A4_WIDTH} ${A4_HEIGHT}`);
+  } else {
+    svg.setAttribute('class', 'stroke-group');
+    svg.setAttribute('viewBox', '-50000 -50000 100000 100000');
+  }
+  svg.dataset.paths = JSON.stringify(paths);
+  container.appendChild(svg);
+  normalizeZIndices(container);
+  if (paths.length > 0) {
+    renderStrokeSVG(svg, paths);
+  }
+  return svg;
+}
+
+function getOrCreateDoodleLayer(container, forceNew = false) {
+  if (!forceNew) {
+    const lastChild = container.lastElementChild;
+    if (lastChild && (lastChild.classList.contains('stroke-group') || lastChild.classList.contains('page-stroke-group'))) {
+      return lastChild;
+    }
+  }
+  return createDoodleLayer(container);
+}
 
 // ==========================================
-// 3. INFINITE CANVAS ENGINE
+// 3. UNIFIED SVG & ELEMENT ENGINE
+// ==========================================
+function renderStrokeSVG(svgEl, paths) {
+  svgEl.innerHTML = '';
+  const cleanPaths = [];
+  if (Array.isArray(paths)) {
+    paths.forEach((path) => {
+      if (!Array.isArray(path)) return;
+      const cleanPath = path.filter((pt) => pt && typeof pt.x === 'number' && typeof pt.y === 'number' && Number.isFinite(pt.x) && Number.isFinite(pt.y));
+      if (cleanPath.length > 0) {
+        cleanPaths.push(cleanPath);
+      }
+    });
+  }
+  svgEl.dataset.paths = JSON.stringify(cleanPaths);
+
+  cleanPaths.forEach((path) => {
+    let d = '';
+    if (path.length === 1) {
+      d = `M ${path[0].x} ${path[0].y} L ${path[0].x + 0.01} ${path[0].y + 0.01}`;
+    } else {
+      d = path.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '').trim();
+    }
+    if (!d || d.includes('NaN') || d.includes('Infinity') || d.includes('null') || d.includes('undefined')) return;
+
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('d', d);
+    pathEl.setAttribute('stroke', 'orange');
+    pathEl.setAttribute('stroke-width', '4');
+    pathEl.setAttribute('stroke-linecap', 'round');
+    pathEl.setAttribute('stroke-linejoin', 'round');
+    pathEl.setAttribute('fill', 'none');
+    svgEl.appendChild(pathEl);
+  });
+}
+
+function distToSegmentSquared(p, v, w) {
+  const l2 = (v.x - w.x) * (v.x - w.x) + (v.y - w.y) * (v.y - w.y);
+  if (l2 === 0) return (p.x - v.x) * (p.x - v.x) + (p.y - v.y) * (p.y - v.y);
+  let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const projX = v.x + t * (w.x - v.x);
+  const projY = v.y + t * (w.y - v.y);
+  return (p.x - projX) * (p.x - projX) + (p.y - projY) * (p.y - projY);
+}
+
+function distToSegment(p, v, w) {
+  return Math.sqrt(distToSegmentSquared(p, v, w));
+}
+
+function eraseStrokesInContainer(elemContainer, pos, threshold = 16) {
+  let modified = false;
+  elemContainer.querySelectorAll('.page-stroke-group, .stroke-group').forEach((svg) => {
+    if (svg.dataset.locked === 'true' || svg.dataset.hidden === 'true') return;
+    let paths = JSON.parse(svg.dataset.paths || '[]');
+    const prevLen = paths.length;
+    paths = paths.filter((path) => {
+      if (!path || path.length === 0) return false;
+      if (path.length === 1) {
+        return Math.hypot(path[0].x - pos.x, path[0].y - pos.y) >= threshold;
+      }
+      for (let i = 0; i < path.length - 1; i++) {
+        if (distToSegment(pos, path[i], path[i + 1]) < threshold) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (paths.length !== prevLen) {
+      modified = true;
+      if (paths.length === 0) {
+        svg.remove();
+      } else {
+        renderStrokeSVG(svg, paths);
+      }
+    }
+  });
+  return modified;
+}
+
+function bindNodeTransform(wrapper, ctx) {
+  let activeAction = null;
+  let startX, startY, startW, startH, startLeft, startTop, aspectRatio;
+  let didTransform = false;
+
+  function onPointerDown(e, action) {
+    if (currentMode === 'draw' || currentMode === 'eraser') return;
+    if (e.target.closest('.delete-btn') || e.target.closest('.element-layer-bar')) return;
+    e.stopPropagation();
+    setMode('idle');
+    deselectAll();
+    wrapper.classList.add('selected');
+
+    activeAction = action;
+    didTransform = false;
+    startX = e.touches ? e.touches[0].clientX : e.clientX;
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startW = wrapper.offsetWidth;
+    startH = wrapper.offsetHeight;
+    startLeft = parseFloat(wrapper.style.left) || 0;
+    startTop = parseFloat(wrapper.style.top) || 0;
+    aspectRatio = startW / startH;
+
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchmove', onPointerMove, { passive: false });
+    window.addEventListener('touchend', onPointerUp);
+  }
+
+  function onPointerMove(e) {
+    if (!activeAction) return;
+    e.preventDefault();
+    didTransform = true;
+
+    const scale = ctx.getScale();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const dx = (clientX - startX) / scale;
+    const dy = (clientY - startY) / scale;
+
+    if (activeAction === 'drag') {
+      const pos = ctx.clampNodePosition(startLeft + dx, startTop + dy, wrapper.offsetWidth, wrapper.offsetHeight);
+      wrapper.style.left = `${pos.left}px`;
+      wrapper.style.top = `${pos.top}px`;
+      return;
+    }
+
+    if (activeAction === 'rot') {
+      const rect = wrapper.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const rad = Math.atan2(clientY - centerY, clientX - centerX);
+      let degrees = rad * (180 / Math.PI) - 90;
+      wrapper.style.transform = `rotate(${degrees}deg)`;
+      wrapper.dataset.angle = degrees.toString();
+      return;
+    }
+
+    let newW = startW;
+    let newH = startH;
+    let newLeft = startLeft;
+    let newTop = startTop;
+
+    switch (activeAction) {
+      case 'br':
+        newW = Math.max(40, startW + dx);
+        newH = newW / aspectRatio;
+        break;
+      case 'bl':
+        newW = Math.max(40, startW - dx);
+        newH = newW / aspectRatio;
+        newLeft = startLeft + (startW - newW);
+        break;
+      case 'tr':
+        newW = Math.max(40, startW + dx);
+        newH = newW / aspectRatio;
+        newTop = startTop + (startH - newH);
+        break;
+      case 'tl':
+        newW = Math.max(40, startW - dx);
+        newH = newW / aspectRatio;
+        newLeft = startLeft + (startW - newW);
+        newTop = startTop + (startH - newH);
+        break;
+      case 'mr':
+        newW = Math.max(40, startW + dx);
+        break;
+      case 'ml':
+        newW = Math.max(40, startW - dx);
+        newLeft = startLeft + (startW - newW);
+        break;
+      case 'bc':
+        newH = Math.max(40, startH + dy);
+        break;
+      case 'tc':
+        newH = Math.max(40, startH - dy);
+        newTop = startTop + (startH - newH);
+        break;
+    }
+
+    wrapper.style.width = `${newW}px`;
+    wrapper.style.height = `${newH}px`;
+    wrapper.style.left = `${newLeft}px`;
+    wrapper.style.top = `${newTop}px`;
+  }
+
+  function onPointerUp() {
+    activeAction = null;
+    window.removeEventListener('mousemove', onPointerMove);
+    window.removeEventListener('mouseup', onPointerUp);
+    window.removeEventListener('touchmove', onPointerMove);
+    window.removeEventListener('touchend', onPointerUp);
+    if (didTransform) ctx.saveState();
+  }
+
+  wrapper.addEventListener('mousedown', (e) => onPointerDown(e, 'drag'));
+  wrapper.addEventListener('touchstart', (e) => onPointerDown(e, 'drag'), { passive: false });
+
+  wrapper.querySelectorAll('.handle').forEach((h) => {
+    h.addEventListener('mousedown', (e) => onPointerDown(e, h.dataset.handle));
+    h.addEventListener('touchstart', (e) => onPointerDown(e, h.dataset.handle), { passive: false });
+  });
+}
+
+function createImageNode(src, left, top, width, height, angle, ctx) {
+  deselectAll();
+  const wrapper = document.createElement('div');
+  wrapper.className = 'img-wrapper selected';
+  const pos = ctx.clampNodePosition(left, top, width, height);
+  wrapper.style.left = `${pos.left}px`;
+  wrapper.style.top = `${pos.top}px`;
+  wrapper.style.width = `${width}px`;
+  wrapper.style.height = `${height}px`;
+  wrapper.style.transform = `rotate(${angle}deg)`;
+  wrapper.dataset.angle = angle.toString();
+  if (ctx && ctx.container) assignNextZIndex(ctx.container, wrapper);
+
+  const img = document.createElement('img');
+  img.src = src;
+
+  ['tl', 'tr', 'bl', 'br', 'tc', 'bc', 'ml', 'mr', 'rot'].forEach((pos) => {
+    const handle = document.createElement('div');
+    handle.className = `handle ${pos}`;
+    handle.dataset.handle = pos;
+    wrapper.appendChild(handle);
+  });
+
+  wrapper.appendChild(img);
+  wrapper.appendChild(createLayerBar(wrapper, ctx));
+  bindNodeTransform(wrapper, ctx);
+
+  wrapper.addEventListener('click', (e) => {
+    if (currentMode === 'draw' || currentMode === 'eraser') return;
+    if (e.target.closest('.element-layer-bar')) return;
+    e.stopPropagation();
+    deselectAll();
+    wrapper.classList.add('selected');
+  });
+
+  return wrapper;
+}
+
+function createTextNode(x, y, initialHtml, ctx) {
+  deselectAll();
+  const wrapper = document.createElement('div');
+  wrapper.className = 'text-wrapper selected';
+  const pos = ctx.clampNodePosition(x, y, 120, 40);
+  wrapper.style.left = `${pos.left}px`;
+  wrapper.style.top = `${pos.top}px`;
+  if (ctx && ctx.container) assignNextZIndex(ctx.container, wrapper);
+
+  const grip = document.createElement('div');
+  grip.className = 'text-grip';
+  grip.innerHTML = '⋮⋮';
+  grip.title = 'Drag to move';
+
+  const box = document.createElement('div');
+  box.className = 'floating-text';
+  box.contentEditable = 'true';
+  box.spellcheck = false;
+  if (initialHtml) box.innerHTML = initialHtml;
+
+  wrapper.appendChild(grip);
+  wrapper.appendChild(box);
+  wrapper.appendChild(createLayerBar(wrapper, ctx));
+
+  function onGripDragStart(e) {
+    if (currentMode === 'draw' || currentMode === 'eraser') return;
+    if (e.target.closest('.element-layer-bar')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    deselectAll();
+    wrapper.classList.add('selected');
+
+    const scale = ctx.getScale();
+    const startX = e.touches ? e.touches[0].clientX : e.clientX;
+    const startY = e.touches ? e.touches[0].clientY : e.clientY;
+    const startLeft = parseFloat(wrapper.style.left) || 0;
+    const startTop = parseFloat(wrapper.style.top) || 0;
+    let didMove = false;
+
+    function onGripDragMove(ev) {
+      ev.preventDefault();
+      didMove = true;
+      const curX = ev.touches ? ev.touches[0].clientX : ev.clientX;
+      const curY = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      const dx = (curX - startX) / scale;
+      const dy = (curY - startY) / scale;
+
+      const p = ctx.clampNodePosition(startLeft + dx, startTop + dy, wrapper.offsetWidth, wrapper.offsetHeight);
+      wrapper.style.left = `${p.left}px`;
+      wrapper.style.top = `${p.top}px`;
+    }
+
+    function onGripDragEnd() {
+      window.removeEventListener('mousemove', onGripDragMove);
+      window.removeEventListener('mouseup', onGripDragEnd);
+      window.removeEventListener('touchmove', onGripDragMove);
+      window.removeEventListener('touchend', onGripDragEnd);
+      if (didMove) ctx.saveState();
+    }
+
+    window.addEventListener('mousemove', onGripDragMove);
+    window.addEventListener('mouseup', onGripDragEnd);
+    window.addEventListener('touchmove', onGripDragMove, { passive: false });
+    window.addEventListener('touchend', onGripDragEnd);
+  }
+
+  grip.addEventListener('mousedown', onGripDragStart);
+  grip.addEventListener('touchstart', onGripDragStart, { passive: false });
+
+  wrapper.addEventListener('click', (e) => {
+    if (currentMode === 'draw' || currentMode === 'eraser') return;
+    if (e.target.closest('.element-layer-bar')) return;
+    e.stopPropagation();
+    setMode('idle');
+    deselectAll();
+    wrapper.classList.add('selected');
+  });
+
+  box.addEventListener('input', () => {
+    clearTimeout(textInputDebounce);
+    textInputDebounce = setTimeout(() => {
+      ctx.saveState();
+    }, 300);
+  });
+
+  box.addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      setTimeout(() => applyLinkParsing(box), 0);
+    }
+  });
+
+  box.addEventListener('paste', () => {
+    setTimeout(() => {
+      applyLinkParsing(box);
+      ctx.saveState();
+    }, 0);
+  });
+
+  box.addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (link) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(link.href, '_blank');
+    }
+  });
+
+  box.addEventListener('blur', () => {
+    applyLinkParsing(box);
+    if (!box.textContent.trim()) {
+      wrapper.remove();
+    }
+    ctx.saveState();
+  });
+
+  return wrapper;
+}
+
+function spawnTextInContext(x, y, ctx) {
+  const textNode = createTextNode(x, y, '', ctx);
+  ctx.container.appendChild(textNode);
+  bringToFront(ctx.container, textNode);
+  textNode.querySelector('.floating-text').focus();
+  ctx.saveState();
+}
+
+function addImageToContext(src, x, y, ctx) {
+  const pos = ctx.clampNodePosition(x, y, 240, 180);
+  const imgNode = createImageNode(src, pos.left, pos.top, 240, 180, 0, ctx);
+  ctx.container.appendChild(imgNode);
+  bringToFront(ctx.container, imgNode);
+  ctx.saveState();
+  setMode('idle');
+}
+
+// ==========================================
+// 4. UNIFIED DRAWING & ERASING ENGINE
+// (Zero-Jump, Real-Time Vector SVG Engine)
+// ==========================================
+function bindUnifiedDrawingEvents(surfaceEl, containerEl, getContext) {
+  let isInteracting = false;
+  let currentStroke = [];
+  let eraserModified = false;
+  let activeDrawingPath = null;
+  let activeStrokeSvg = null;
+
+  function onPointerDown(e) {
+    if (e.pointerType === 'touch' && !e.isPrimary) return;
+    if (e.touches && e.touches.length > 1) {
+      if (activeDrawingPath) { activeDrawingPath.remove(); activeDrawingPath = null; }
+      isInteracting = false;
+      currentStroke = [];
+      return;
+    }
+
+    if (e.target.closest('.toolbar') || e.target.closest('.zoom-controls') || e.target.closest('.modal-card') || e.target.closest('.add-page-btn') || e.target.closest('.layers-panel')) {
+      return;
+    }
+
+    if (currentMode !== 'draw' && currentMode !== 'eraser') {
+      if (e.target.closest('.img-wrapper') || e.target.closest('.text-wrapper')) {
+        return;
+      }
+    }
+
+    // Permission enforcement in collaborative live room
+    if (window.collabState && window.collabState.inRoom && !window.collabState.canWrite) {
+      if (currentMode === 'draw' || currentMode === 'eraser' || currentMode === 'text') {
+        showToast('🔒 View-only: Waiting for Host to grant write permission.');
+        return;
+      }
+    }
+
+    const ctx = getContext();
+    const isMiddleClick = e.button === 1;
+    const shouldPan = isMiddleClick || isSpacePressed || currentMode === 'pan';
+
+    if (shouldPan && ctx.type === 'infinite') {
+      startInfinitePan(e);
+      return;
+    }
+
+    if (currentMode === 'text') {
+      const pos = ctx.toLocalPos(e);
+      ctx.spawnText(pos.x, pos.y);
+      return;
+    }
+
+    if (currentMode === 'idle' || currentMode === 'pan') {
+      return;
+    }
+
+    const pos = ctx.toLocalPos(e);
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+      return;
+    }
+
+    isInteracting = true;
+    if (e.pointerId && surfaceEl.setPointerCapture) {
+      try { surfaceEl.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+
+    if (currentMode === 'draw') {
+      currentStroke = [{ x: pos.x, y: pos.y }];
+      
+      // Get or create doodle layer at the top of stack
+      activeStrokeSvg = ctx.getStrokeSvg();
+      activeDrawingPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      activeDrawingPath.setAttribute('d', `M ${pos.x} ${pos.y} L ${pos.x + 0.01} ${pos.y + 0.01}`);
+      activeDrawingPath.setAttribute('stroke', 'orange');
+      activeDrawingPath.setAttribute('stroke-width', '4');
+      activeDrawingPath.setAttribute('stroke-linecap', 'round');
+      activeDrawingPath.setAttribute('stroke-linejoin', 'round');
+      activeDrawingPath.setAttribute('fill', 'none');
+      activeDrawingPath.setAttribute('class', 'active-drawing-path');
+      activeStrokeSvg.appendChild(activeDrawingPath);
+
+      if (window.collab && window.collab.broadcastStrokeChunk) {
+        window.collab.broadcastStrokeChunk(pos.x, pos.y, 'orange', 4);
+      }
+    } else if (currentMode === 'eraser') {
+      const threshold = Math.max(14, Math.min(48, 20 / ctx.getScale()));
+      eraserModified = eraseStrokesInContainer(containerEl, { x: pos.x, y: pos.y }, threshold);
+      if (eraserModified && window.collab && window.collab.broadcastErase) {
+        window.collab.broadcastErase(pos.x, pos.y, threshold);
+      }
+    }
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+  }
+
+  function onPointerMove(e) {
+    if (e.pointerType === 'touch' && !e.isPrimary) return;
+    if (e.touches && e.touches.length > 1) {
+      if (activeDrawingPath) { activeDrawingPath.remove(); activeDrawingPath = null; }
+      isInteracting = false;
+      currentStroke = [];
+      return;
+    }
+
+    if (!isInteracting || currentMode === 'idle' || currentMode === 'text' || currentMode === 'pan') return;
+
+    const ctx = getContext();
+    const pos = ctx.toLocalPos(e);
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return;
+
+    if (currentMode === 'draw' && activeDrawingPath) {
+      currentStroke.push({ x: pos.x, y: pos.y });
+      const currentD = activeDrawingPath.getAttribute('d') || '';
+      activeDrawingPath.setAttribute('d', `${currentD} L ${pos.x} ${pos.y}`);
+
+      if (window.collab && window.collab.broadcastStrokeChunk) {
+        window.collab.broadcastStrokeChunk(pos.x, pos.y, 'orange', 4);
+      }
+    } else if (currentMode === 'eraser') {
+      const threshold = Math.max(14, Math.min(48, 20 / ctx.getScale()));
+      if (eraseStrokesInContainer(containerEl, { x: pos.x, y: pos.y }, threshold)) {
+        eraserModified = true;
+        if (window.collab && window.collab.broadcastErase) {
+          window.collab.broadcastErase(pos.x, pos.y, threshold);
+        }
+      }
+    }
+  }
+
+  function onPointerUp(e) {
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+    window.removeEventListener('pointercancel', onPointerUp);
+
+    if (e && e.pointerId && surfaceEl.releasePointerCapture) {
+      try { surfaceEl.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+
+    const ctx = getContext();
+    if (isInteracting) {
+      if (currentMode === 'draw') {
+        if (activeDrawingPath) {
+          activeDrawingPath.remove();
+          activeDrawingPath = null;
+        }
+
+        const validStroke = currentStroke.filter(pt => pt && typeof pt.x === 'number' && typeof pt.y === 'number' && Number.isFinite(pt.x) && Number.isFinite(pt.y));
+        if (validStroke.length >= 1) {
+          const strokeSvg = activeStrokeSvg || ctx.getStrokeSvg();
+          let paths = [];
+          try {
+            paths = JSON.parse(strokeSvg.dataset.paths || '[]');
+          } catch (_) {
+            paths = [];
+          }
+          paths.push(validStroke);
+          renderStrokeSVG(strokeSvg, paths);
+          ctx.saveState();
+
+          if (window.collab && window.collab.broadcastStrokeCommit) {
+            window.collab.broadcastStrokeCommit(validStroke, 'orange', 4);
+          }
+        }
+        currentStroke = [];
+        activeStrokeSvg = null;
+      } else if (currentMode === 'eraser' && eraserModified) {
+        eraserModified = false;
+        ctx.saveState();
+      }
+    }
+    isInteracting = false;
+  }
+
+  surfaceEl.addEventListener('pointerdown', onPointerDown);
+}
+
+// ==========================================
+// 5. UNIFIED ELEMENT SERIALIZATION
+// ==========================================
+function serializeContainerElements(container) {
+  const elements = [];
+  Array.from(container.children).forEach((child) => {
+    if (child.classList.contains('stroke-group') || child.classList.contains('page-stroke-group')) {
+      const paths = JSON.parse(child.dataset.paths || '[]');
+      if (paths.length > 0) {
+        elements.push({
+          type: 'strokes',
+          zIndex: parseInt(child.style.zIndex, 10) || 10,
+          paths
+        });
+      }
+    } else if (child.classList.contains('img-wrapper')) {
+      const img = child.querySelector('img');
+      elements.push({
+        type: 'image',
+        zIndex: parseInt(child.style.zIndex, 10) || 10,
+        src: img ? img.src : '',
+        left: parseFloat(child.style.left) || 0,
+        top: parseFloat(child.style.top) || 0,
+        width: parseFloat(child.style.width) || 240,
+        height: parseFloat(child.style.height) || 180,
+        angle: parseFloat(child.dataset.angle) || 0
+      });
+    } else if (child.classList.contains('text-wrapper')) {
+      const box = child.querySelector('.floating-text');
+      elements.push({
+        type: 'text',
+        zIndex: parseInt(child.style.zIndex, 10) || 10,
+        left: parseFloat(child.style.left) || 0,
+        top: parseFloat(child.style.top) || 0,
+        html: box ? box.innerHTML : ''
+      });
+    }
+  });
+  return elements;
+}
+
+function restoreContainerElements(container, elements, ctx) {
+  container.innerHTML = '';
+  (elements || []).forEach((item) => {
+    let node = null;
+    if (item.type === 'strokes') {
+      node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const isPage = container.classList.contains('page-elements-container');
+      if (isPage) {
+        node.setAttribute('class', 'page-stroke-group');
+        node.setAttribute('viewBox', `0 0 ${A4_WIDTH} ${A4_HEIGHT}`);
+      } else {
+        node.setAttribute('class', 'stroke-group');
+        node.setAttribute('viewBox', '-50000 -50000 100000 100000');
+      }
+      node.style.zIndex = (item.zIndex || 10).toString();
+      renderStrokeSVG(node, item.paths);
+      container.appendChild(node);
+    } else if (item.type === 'image') {
+      node = createImageNode(item.src, item.left, item.top, item.width, item.height, item.angle, ctx);
+      node.style.zIndex = (item.zIndex || 10).toString();
+      container.appendChild(node);
+    } else if (item.type === 'text') {
+      node = createTextNode(item.left, item.top, item.html, ctx);
+      node.style.zIndex = (item.zIndex || 10).toString();
+      container.appendChild(node);
+    }
+  });
+}
+
+// Global stroke sync for exports
+let strokePaths = [];
+function syncGlobalStrokes() {
+  strokePaths = [];
+  const container = canvasView === 'infinite' ? elementsContainer : pagesWrapper;
+  container.querySelectorAll('.stroke-group, .page-stroke-group').forEach((svg) => {
+    const paths = JSON.parse(svg.dataset.paths || '[]');
+    paths.forEach((p) => {
+      strokePaths.push({
+        id: 's_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        points: p,
+        strokeColor: 'orange',
+        strokeWidth: 4
+      });
+    });
+  });
+  window.strokePaths = strokePaths;
+}
+
+// ==========================================
+// 6. INFINITE CANVAS VIEWPORT & CONTEXT
 // ==========================================
 let panX = window.innerWidth / 4;
 let panY = window.innerHeight / 4;
@@ -280,35 +1051,8 @@ let panStartY = 0;
 let panCameraStartX = 0;
 let panCameraStartY = 0;
 
-let isInfDrawing = false;
-let currentInfStroke = [];
-let strokePaths = []; // Array of { id, points: [{x, y}], strokeColor, strokeWidth }
-
 let infHistoryStack = [];
 let infRedoStack = [];
-
-function resizeOverlay() {
-  drawOverlay.width = canvasContainer.clientWidth;
-  drawOverlay.height = canvasContainer.clientHeight;
-}
-window.addEventListener('resize', resizeOverlay);
-resizeOverlay();
-
-function screenToWorld(sx, sy) {
-  const rect = canvasContainer.getBoundingClientRect();
-  return {
-    x: (sx - rect.left - panX) / zoom,
-    y: (sy - rect.top - panY) / zoom
-  };
-}
-
-function worldToScreen(wx, wy) {
-  const rect = canvasContainer.getBoundingClientRect();
-  return {
-    x: wx * zoom + panX + rect.left,
-    y: wy * zoom + panY + rect.top
-  };
-}
 
 function updateViewport() {
   canvasWorld.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
@@ -402,34 +1146,77 @@ canvasContainer.addEventListener('touchend', (e) => {
   }
 });
 
-function serializeInfinite() {
-  const elements = [];
-  Array.from(elementsContainer.children).forEach((child) => {
-    if (child.classList.contains('img-wrapper')) {
-      const img = child.querySelector('img');
-      elements.push({
-        type: 'image',
-        src: img ? img.src : '',
-        left: parseFloat(child.style.left) || 0,
-        top: parseFloat(child.style.top) || 0,
-        width: parseFloat(child.style.width) || 240,
-        height: parseFloat(child.style.height) || 180,
-        angle: parseFloat(child.dataset.angle) || 0
-      });
-    } else if (child.classList.contains('text-wrapper')) {
-      const box = child.querySelector('.floating-text');
-      elements.push({
-        type: 'text',
-        left: parseFloat(child.style.left) || 0,
-        top: parseFloat(child.style.top) || 0,
-        html: box ? box.innerHTML : ''
-      });
-    }
-  });
+function startInfinitePan(e) {
+  isPanning = true;
+  canvasContainer.classList.add('mode-panning');
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+  panCameraStartX = panX;
+  panCameraStartY = panY;
 
+  function onPanMove(ev) {
+    if (!isPanning) return;
+    panX = panCameraStartX + (ev.clientX - panStartX);
+    panY = panCameraStartY + (ev.clientY - panStartY);
+    updateViewport();
+  }
+
+  function onPanUp() {
+    isPanning = false;
+    canvasContainer.classList.remove('mode-panning');
+    updateContainerCursor();
+    window.removeEventListener('pointermove', onPanMove);
+    window.removeEventListener('pointerup', onPanUp);
+  }
+
+  window.addEventListener('pointermove', onPanMove);
+  window.addEventListener('pointerup', onPanUp);
+}
+
+canvasContainer.addEventListener('pointerdown', (e) => {
+  const isMiddleClick = e.button === 1;
+  const shouldPan = isMiddleClick || isSpacePressed || currentMode === 'pan' || (e.touches && e.touches.length > 1);
+  if (shouldPan) {
+    startInfinitePan(e);
+  }
+});
+
+canvasContainer.addEventListener('dblclick', (e) => {
+  if (e.target.closest('.img-wrapper') || e.target.closest('.text-wrapper')) return;
+  const ctx = getInfiniteContext();
+  const pos = ctx.toLocalPos(e);
+  ctx.spawnText(pos.x, pos.y);
+});
+
+function getInfiniteContext() {
+  return {
+    type: 'infinite',
+    container: elementsContainer,
+    getStrokeSvg: (forceNew = false) => {
+      return getOrCreateDoodleLayer(elementsContainer, forceNew);
+    },
+    getScale: () => (zoom && zoom > 0 ? zoom : 1),
+    toLocalPos: (e) => {
+      const rect = canvasContainer.getBoundingClientRect();
+      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : (e.clientX !== undefined ? e.clientX : 0);
+      const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : (e.clientY !== undefined ? e.clientY : 0);
+      const curZoom = (zoom && zoom > 0) ? zoom : 1;
+      let x = (clientX - rect.left - panX) / curZoom;
+      let y = (clientY - rect.top - panY) / curZoom;
+      if (!Number.isFinite(x)) x = 0;
+      if (!Number.isFinite(y)) y = 0;
+      return { x, y };
+    },
+    clampNodePosition: (left, top) => ({ left, top }),
+    spawnText: (x, y) => spawnTextInContext(x, y, getInfiniteContext()),
+    addImage: (src, x, y) => addImageToContext(src, x, y, getInfiniteContext()),
+    saveState: () => saveInfiniteState()
+  };
+}
+
+function serializeInfinite() {
   return JSON.stringify({
-    strokes: strokePaths,
-    elements: elements,
+    elements: serializeContainerElements(elementsContainer),
     camera: { panX, panY, zoom }
   });
 }
@@ -441,445 +1228,34 @@ function saveInfiniteState() {
   if (infHistoryStack.length > 60) infHistoryStack.shift();
   infRedoStack = [];
   updateHistoryButtons();
-}
+  syncGlobalStrokes();
 
-function renderAllInfiniteStrokes() {
-  strokesLayer.innerHTML = '';
-  strokePaths.forEach((stroke) => {
-    if (!stroke.points || stroke.points.length === 0) return;
-    let d = '';
-    if (stroke.points.length === 1) {
-      d = `M ${stroke.points[0].x} ${stroke.points[0].y} L ${stroke.points[0].x + 0.01} ${stroke.points[0].y + 0.01}`;
-    } else {
-      d = stroke.points.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-    }
-
-    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    pathEl.setAttribute('d', d);
-    pathEl.setAttribute('stroke', stroke.strokeColor || 'orange');
-    pathEl.setAttribute('stroke-width', stroke.strokeWidth || '4');
-    pathEl.setAttribute('stroke-linecap', 'round');
-    pathEl.setAttribute('stroke-linejoin', 'round');
-    pathEl.setAttribute('fill', 'none');
-    pathEl.dataset.id = stroke.id;
-    strokesLayer.appendChild(pathEl);
-  });
+  if (!window.isRemoteApplying && window.collab && window.collab.broadcastStateChange) {
+    window.collab.broadcastStateChange();
+  }
 }
 
 function restoreInfiniteState(jsonStr) {
   const data = JSON.parse(jsonStr);
-  strokePaths = data.strokes || [];
-  renderAllInfiniteStrokes();
+  const ctx = getInfiniteContext();
+  restoreContainerElements(elementsContainer, data.elements, ctx);
 
-  elementsContainer.innerHTML = '';
-  (data.elements || []).forEach((item) => {
-    if (item.type === 'image') {
-      const wrap = createInfiniteImageNode(item.src, item.left, item.top, item.width, item.height, item.angle);
-      elementsContainer.appendChild(wrap);
-    } else if (item.type === 'text') {
-      const wrap = createInfiniteTextNode(item.left, item.top, item.html);
-      elementsContainer.appendChild(wrap);
-    }
-  });
+  // Handle older legacy saves that stored strokes directly
+  if (data.strokes && data.strokes.length > 0 && (!data.elements || !data.elements.some(e => e.type === 'strokes'))) {
+    const svg = ctx.getStrokeSvg();
+    const legacyPaths = data.strokes.map(s => s.points || []);
+    renderStrokeSVG(svg, legacyPaths);
+  }
 
   updateHistoryButtons();
+  syncGlobalStrokes();
 }
 
-function eraseInfiniteAt(worldPos) {
-  const threshold = 16 / zoom;
-  const prevLen = strokePaths.length;
-  strokePaths = strokePaths.filter((stroke) => {
-    return !stroke.points.some((pt) => Math.hypot(pt.x - worldPos.x, pt.y - worldPos.y) < threshold);
-  });
-  if (strokePaths.length !== prevLen) {
-    renderAllInfiniteStrokes();
-    return true;
-  }
-  return false;
-}
-
-let infEraserModified = false;
-
-function onInfinitePointerDown(e) {
-  const isMiddleClick = e.button === 1;
-  const shouldPan = isMiddleClick || isSpacePressed || currentMode === 'pan' || (e.touches && e.touches.length > 1);
-
-  if (shouldPan) {
-    isPanning = true;
-    canvasContainer.classList.add('mode-panning');
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panCameraStartX = panX;
-    panCameraStartY = panY;
-
-    window.addEventListener('pointermove', onInfinitePanMove);
-    window.addEventListener('pointerup', onInfinitePanUp);
-    return;
-  }
-
-  if (e.target.closest('.img-wrapper') || e.target.closest('.text-wrapper')) return;
-
-  const worldPos = screenToWorld(e.clientX, e.clientY);
-
-  if (currentMode === 'draw') {
-    isInfDrawing = true;
-    currentInfStroke = [worldPos];
-    resizeOverlay();
-    drawOverlayCtx.clearRect(0, 0, drawOverlay.width, drawOverlay.height);
-    drawOverlayCtx.beginPath();
-    drawOverlayCtx.strokeStyle = 'orange';
-    drawOverlayCtx.lineWidth = 4 * zoom;
-    drawOverlayCtx.lineCap = 'round';
-    drawOverlayCtx.lineJoin = 'round';
-
-    const screenPos = worldToScreen(worldPos.x, worldPos.y);
-    const rect = canvasContainer.getBoundingClientRect();
-    const sx = screenPos.x - rect.left;
-    const sy = screenPos.y - rect.top;
-    drawOverlayCtx.moveTo(sx, sy);
-    drawOverlayCtx.lineTo(sx + 0.01, sy + 0.01);
-    drawOverlayCtx.stroke();
-
-    window.addEventListener('pointermove', onInfiniteDrawMove);
-    window.addEventListener('pointerup', onInfiniteDrawUp);
-  } else if (currentMode === 'eraser') {
-    isInfDrawing = true;
-    infEraserModified = eraseInfiniteAt(worldPos);
-    window.addEventListener('pointermove', onInfiniteEraseMove);
-    window.addEventListener('pointerup', onInfiniteEraseUp);
-  } else if (currentMode === 'text' || currentMode === 'idle') {
-    spawnInfiniteText(worldPos.x, worldPos.y);
-  }
-}
-
-function onInfinitePanMove(e) {
-  if (!isPanning) return;
-  panX = panCameraStartX + (e.clientX - panStartX);
-  panY = panCameraStartY + (e.clientY - panStartY);
-  updateViewport();
-}
-
-function onInfinitePanUp() {
-  isPanning = false;
-  canvasContainer.classList.remove('mode-panning');
-  updateContainerCursor();
-  window.removeEventListener('pointermove', onInfinitePanMove);
-  window.removeEventListener('pointerup', onInfinitePanUp);
-}
-
-function onInfiniteDrawMove(e) {
-  if (!isInfDrawing) return;
-  const worldPos = screenToWorld(e.clientX, e.clientY);
-  currentInfStroke.push(worldPos);
-
-  const screenPos = worldToScreen(worldPos.x, worldPos.y);
-  const rect = canvasContainer.getBoundingClientRect();
-  drawOverlayCtx.lineTo(screenPos.x - rect.left, screenPos.y - rect.top);
-  drawOverlayCtx.stroke();
-}
-
-function onInfiniteDrawUp() {
-  window.removeEventListener('pointermove', onInfiniteDrawMove);
-  window.removeEventListener('pointerup', onInfiniteDrawUp);
-
-  if (isInfDrawing && currentInfStroke.length >= 1) {
-    drawOverlayCtx.clearRect(0, 0, drawOverlay.width, drawOverlay.height);
-    strokePaths.push({
-      id: 's_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-      points: currentInfStroke,
-      strokeColor: 'orange',
-      strokeWidth: 4
-    });
-    currentInfStroke = [];
-    renderAllInfiniteStrokes();
-    saveInfiniteState();
-  }
-  isInfDrawing = false;
-}
-
-function onInfiniteEraseMove(e) {
-  if (!isInfDrawing) return;
-  const worldPos = screenToWorld(e.clientX, e.clientY);
-  if (eraseInfiniteAt(worldPos)) infEraserModified = true;
-}
-
-function onInfiniteEraseUp() {
-  window.removeEventListener('pointermove', onInfiniteEraseMove);
-  window.removeEventListener('pointerup', onInfiniteEraseUp);
-  if (infEraserModified) {
-    infEraserModified = false;
-    saveInfiniteState();
-  }
-  isInfDrawing = false;
-}
-
-canvasContainer.addEventListener('pointerdown', onInfinitePointerDown);
-
-canvasContainer.addEventListener('dblclick', (e) => {
-  if (e.target.closest('.img-wrapper') || e.target.closest('.text-wrapper')) return;
-  const worldPos = screenToWorld(e.clientX, e.clientY);
-  spawnInfiniteText(worldPos.x, worldPos.y);
-});
-
-function spawnInfiniteText(worldX, worldY) {
-  const textNode = createInfiniteTextNode(worldX, worldY, '');
-  elementsContainer.appendChild(textNode);
-  textNode.querySelector('.floating-text').focus();
-  saveInfiniteState();
-}
-
-function createInfiniteTextNode(x, y, initialHtml) {
-  deselectAll();
-  const wrapper = document.createElement('div');
-  wrapper.className = 'text-wrapper selected';
-  wrapper.style.left = `${x}px`;
-  wrapper.style.top = `${y}px`;
-
-  const grip = document.createElement('div');
-  grip.className = 'text-grip';
-  grip.innerHTML = '⋮⋮';
-  grip.title = 'Drag to move';
-
-  const box = document.createElement('div');
-  box.className = 'floating-text';
-  box.contentEditable = 'true';
-  box.spellcheck = false;
-  if (initialHtml) box.innerHTML = initialHtml;
-
-  wrapper.appendChild(grip);
-  wrapper.appendChild(box);
-
-  function onGripDragStart(e) {
-    e.stopPropagation();
-    e.preventDefault();
-    deselectAll();
-    wrapper.classList.add('selected');
-
-    const startX = e.touches ? e.touches[0].clientX : e.clientX;
-    const startY = e.touches ? e.touches[0].clientY : e.clientY;
-    const startLeft = parseFloat(wrapper.style.left) || 0;
-    const startTop = parseFloat(wrapper.style.top) || 0;
-    let didMove = false;
-
-    function onGripDragMove(ev) {
-      ev.preventDefault();
-      didMove = true;
-      const curX = ev.touches ? ev.touches[0].clientX : ev.clientX;
-      const curY = ev.touches ? ev.touches[0].clientY : ev.clientY;
-      const dx = (curX - startX) / zoom;
-      const dy = (curY - startY) / zoom;
-      wrapper.style.left = `${startLeft + dx}px`;
-      wrapper.style.top = `${startTop + dy}px`;
-    }
-
-    function onGripDragEnd() {
-      window.removeEventListener('pointermove', onGripDragMove);
-      window.removeEventListener('pointerup', onGripDragEnd);
-      window.removeEventListener('touchmove', onGripDragMove);
-      window.removeEventListener('touchend', onGripDragEnd);
-      if (didMove) saveInfiniteState();
-    }
-
-    window.addEventListener('pointermove', onGripDragMove);
-    window.addEventListener('pointerup', onGripDragEnd);
-    window.addEventListener('touchmove', onGripDragMove, { passive: false });
-    window.addEventListener('touchend', onGripDragEnd);
-  }
-
-  grip.addEventListener('pointerdown', onGripDragStart);
-  grip.addEventListener('touchstart', onGripDragStart, { passive: false });
-
-  wrapper.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setMode('idle');
-    deselectAll();
-    wrapper.classList.add('selected');
-  });
-
-  box.addEventListener('input', () => {
-    clearTimeout(textInputDebounce);
-    textInputDebounce = setTimeout(saveInfiniteState, 300);
-  });
-
-  box.addEventListener('keydown', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') {
-      setTimeout(() => applyLinkParsing(box), 0);
-    }
-  });
-
-  box.addEventListener('paste', () => {
-    setTimeout(() => {
-      applyLinkParsing(box);
-      saveInfiniteState();
-    }, 0);
-  });
-
-  box.addEventListener('click', (e) => {
-    const link = e.target.closest('a');
-    if (link) {
-      e.preventDefault();
-      e.stopPropagation();
-      window.open(link.href, '_blank');
-    }
-  });
-
-  box.addEventListener('blur', () => {
-    applyLinkParsing(box);
-    if (!box.textContent.trim()) wrapper.remove();
-    saveInfiniteState();
-  });
-
-  return wrapper;
-}
-
-function createInfiniteImageNode(src, left, top, width, height, angle) {
-  deselectAll();
-  const wrapper = document.createElement('div');
-  wrapper.className = 'img-wrapper selected';
-  wrapper.style.left = `${left}px`;
-  wrapper.style.top = `${top}px`;
-  wrapper.style.width = `${width}px`;
-  wrapper.style.height = `${height}px`;
-  wrapper.style.transform = `rotate(${angle}deg)`;
-  wrapper.dataset.angle = angle.toString();
-
-  const img = document.createElement('img');
-  img.src = src;
-
-  ['tl', 'tr', 'bl', 'br', 'tc', 'bc', 'ml', 'mr', 'rot'].forEach((pos) => {
-    const handle = document.createElement('div');
-    handle.className = `handle ${pos}`;
-    handle.dataset.handle = pos;
-    wrapper.appendChild(handle);
-  });
-
-  wrapper.appendChild(img);
-  makeInfiniteTransformable(wrapper);
-  return wrapper;
-}
-
-function makeInfiniteTransformable(wrapper) {
-  let activeAction = null;
-  let startX, startY, startW, startH, startLeft, startTop, aspectRatio;
-  let didTransform = false;
-
-  function onPointerDown(e, action) {
-    e.stopPropagation();
-    setMode('idle');
-    deselectAll();
-    wrapper.classList.add('selected');
-
-    activeAction = action;
-    didTransform = false;
-    startX = e.touches ? e.touches[0].clientX : e.clientX;
-    startY = e.touches ? e.touches[0].clientY : e.clientY;
-    startW = wrapper.offsetWidth;
-    startH = wrapper.offsetHeight;
-    startLeft = parseFloat(wrapper.style.left) || 0;
-    startTop = parseFloat(wrapper.style.top) || 0;
-    aspectRatio = startW / startH;
-
-    window.addEventListener('mousemove', onPointerMove);
-    window.addEventListener('mouseup', onPointerUp);
-    window.addEventListener('touchmove', onPointerMove, { passive: false });
-    window.addEventListener('touchend', onPointerUp);
-  }
-
-  function onPointerMove(e) {
-    if (!activeAction) return;
-    e.preventDefault();
-    didTransform = true;
-
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = (clientX - startX) / zoom;
-    const dy = (clientY - startY) / zoom;
-
-    if (activeAction === 'drag') {
-      wrapper.style.left = `${startLeft + dx}px`;
-      wrapper.style.top = `${startTop + dy}px`;
-      return;
-    }
-
-    if (activeAction === 'rot') {
-      const rect = wrapper.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const radians = Math.atan2(clientY - centerY, clientX - centerX);
-      let degrees = radians * (180 / Math.PI) + 90;
-      wrapper.style.transform = `rotate(${degrees}deg)`;
-      wrapper.dataset.angle = degrees.toString();
-      return;
-    }
-
-    let newW = startW;
-    let newH = startH;
-    let newLeft = startLeft;
-    let newTop = startTop;
-
-    switch (activeAction) {
-      case 'br':
-        newW = Math.max(40, startW + dx);
-        newH = newW / aspectRatio;
-        break;
-      case 'bl':
-        newW = Math.max(40, startW - dx);
-        newH = newW / aspectRatio;
-        newLeft = startLeft + (startW - newW);
-        break;
-      case 'tr':
-        newW = Math.max(40, startW + dx);
-        newH = newW / aspectRatio;
-        newTop = startTop + (startH - newH);
-        break;
-      case 'tl':
-        newW = Math.max(40, startW - dx);
-        newH = newW / aspectRatio;
-        newLeft = startLeft + (startW - newW);
-        newTop = startTop + (startH - newH);
-        break;
-      case 'mr':
-        newW = Math.max(40, startW + dx);
-        break;
-      case 'ml':
-        newW = Math.max(40, startW - dx);
-        newLeft = startLeft + (startW - newW);
-        break;
-      case 'bc':
-        newH = Math.max(40, startH + dy);
-        break;
-      case 'tc':
-        newH = Math.max(40, startH - dy);
-        newTop = startTop + (startH - newH);
-        break;
-    }
-
-    wrapper.style.width = `${newW}px`;
-    wrapper.style.height = `${newH}px`;
-    wrapper.style.left = `${newLeft}px`;
-    wrapper.style.top = `${newTop}px`;
-  }
-
-  function onPointerUp() {
-    activeAction = null;
-    window.removeEventListener('mousemove', onPointerMove);
-    window.removeEventListener('mouseup', onPointerUp);
-    window.removeEventListener('touchmove', onPointerMove);
-    window.removeEventListener('touchend', onPointerUp);
-    if (didTransform) saveInfiniteState();
-  }
-
-  wrapper.addEventListener('mousedown', (e) => onPointerDown(e, 'drag'));
-  wrapper.addEventListener('touchstart', (e) => onPointerDown(e, 'drag'), { passive: false });
-
-  wrapper.querySelectorAll('.handle').forEach((h) => {
-    h.addEventListener('mousedown', (e) => onPointerDown(e, h.dataset.handle));
-    h.addEventListener('touchstart', (e) => onPointerDown(e, h.dataset.handle), { passive: false });
-  });
-}
+// Bind unified drawing engine for Infinite Canvas
+bindUnifiedDrawingEvents(canvasContainer, elementsContainer, getInfiniteContext);
 
 // ==========================================
-// 4. A4 MULTI-PAGE CANVAS ENGINE
+// 7. A4 MULTI-PAGE CANVAS ENGINE & CONTEXT
 // ==========================================
 const A4_WIDTH = 794;
 const A4_HEIGHT = 1123;
@@ -901,42 +1277,47 @@ function updateA4PageScales() {
     if (page) page.style.transform = `scale(${scale})`;
   });
 }
-window.addEventListener('resize', updateA4PageScales);
+
+function getA4Context(page) {
+  const elemContainer = page.querySelector('.page-elements-container') || page;
+  return {
+    type: 'a4',
+    page: page,
+    container: elemContainer,
+    getStrokeSvg: (forceNew = false) => {
+      return getOrCreateDoodleLayer(elemContainer, forceNew);
+    },
+    getScale: () => {
+      const rect = page.getBoundingClientRect();
+      return (rect.width && rect.width > 0) ? (rect.width / A4_WIDTH) : 1;
+    },
+    toLocalPos: (e) => {
+      const rect = page.getBoundingClientRect();
+      const scaleFactor = (rect.width && rect.width > 0) ? (A4_WIDTH / rect.width) : 1;
+      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : (e.clientX !== undefined ? e.clientX : 0);
+      const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : (e.clientY !== undefined ? e.clientY : 0);
+      let x = (clientX - rect.left) * scaleFactor;
+      let y = (clientY - rect.top) * scaleFactor;
+      if (!Number.isFinite(x)) x = 0;
+      if (!Number.isFinite(y)) y = 0;
+      return { x, y };
+    },
+    clampNodePosition: (left, top, width = 0, height = 0) => ({
+      left: Math.max(0, Math.min(A4_WIDTH - width, left)),
+      top: Math.max(0, Math.min(A4_HEIGHT - height, top))
+    }),
+    spawnText: (x, y) => spawnTextInContext(x, Math.round(y / ROW_HEIGHT) * ROW_HEIGHT, getA4Context(page)),
+    addImage: (src, x, y) => addImageToContext(src, x, y, getA4Context(page)),
+    saveState: () => saveA4State()
+  };
+}
 
 function serializeA4Workspace() {
   const pagesData = [];
   document.querySelectorAll('.a4-page').forEach((pageEl) => {
     const pageId = pageEl.dataset.pageId;
-    const elements = [];
     const containerEl = pageEl.querySelector('.page-elements-container');
-
-    if (containerEl) {
-      Array.from(containerEl.children).forEach((child) => {
-        if (child.classList.contains('page-stroke-group')) {
-          const paths = JSON.parse(child.dataset.paths || '[]');
-          if (paths.length > 0) elements.push({ type: 'strokes', paths });
-        } else if (child.classList.contains('img-wrapper')) {
-          const img = child.querySelector('img');
-          elements.push({
-            type: 'image',
-            src: img ? img.src : '',
-            left: parseFloat(child.style.left) || 0,
-            top: parseFloat(child.style.top) || 0,
-            width: parseFloat(child.style.width) || 240,
-            height: parseFloat(child.style.height) || 180,
-            angle: parseFloat(child.dataset.angle) || 0
-          });
-        } else if (child.classList.contains('text-wrapper')) {
-          const box = child.querySelector('.floating-text');
-          elements.push({
-            type: 'text',
-            left: parseFloat(child.style.left) || 0,
-            top: parseFloat(child.style.top) || 0,
-            html: box ? box.innerHTML : ''
-          });
-        }
-      });
-    }
+    const elements = containerEl ? serializeContainerElements(containerEl) : [];
     pagesData.push({ id: pageId, elements });
   });
 
@@ -950,28 +1331,11 @@ function saveA4State() {
   if (a4HistoryStack.length > 60) a4HistoryStack.shift();
   a4RedoStack = [];
   updateHistoryButtons();
-}
+  syncGlobalStrokes();
 
-function renderA4StrokeSVG(svgEl, paths) {
-  svgEl.innerHTML = '';
-  svgEl.dataset.paths = JSON.stringify(paths);
-  paths.forEach((path) => {
-    if (!path || path.length === 0) return;
-    let d = '';
-    if (path.length === 1) {
-      d = `M ${path[0].x} ${path[0].y} L ${path[0].x + 0.01} ${path[0].y + 0.01}`;
-    } else {
-      d = path.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-    }
-    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    pathEl.setAttribute('d', d);
-    pathEl.setAttribute('stroke', 'orange');
-    pathEl.setAttribute('stroke-width', '4');
-    pathEl.setAttribute('stroke-linecap', 'round');
-    pathEl.setAttribute('stroke-linejoin', 'round');
-    pathEl.setAttribute('fill', 'none');
-    svgEl.appendChild(pathEl);
-  });
+  if (!window.isRemoteApplying && window.collab && window.collab.broadcastStateChange) {
+    window.collab.broadcastStateChange();
+  }
 }
 
 function restoreA4State(jsonStr) {
@@ -989,30 +1353,14 @@ function restoreA4State(jsonStr) {
     const elemContainer = document.createElement('div');
     elemContainer.className = 'page-elements-container';
 
-    const drawOverlayEl = document.createElement('canvas');
-    drawOverlayEl.className = `page-draw-overlay ${currentMode === 'draw' ? 'active' : currentMode === 'eraser' ? 'active eraser' : currentMode === 'text' ? 'active text-mode' : ''}`;
-    drawOverlayEl.width = A4_WIDTH;
-    drawOverlayEl.height = A4_HEIGHT;
-
     page.appendChild(elemContainer);
-    page.appendChild(drawOverlayEl);
 
-    pData.elements.forEach((item) => {
-      if (item.type === 'strokes') {
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('class', 'page-stroke-group');
-        renderA4StrokeSVG(svg, item.paths);
-        elemContainer.appendChild(svg);
-      } else if (item.type === 'image') {
-        const wrap = createA4ImageNode(item.src, item.left, item.top, item.width, item.height, item.angle, page);
-        elemContainer.appendChild(wrap);
-      } else if (item.type === 'text') {
-        const wrap = createA4TextNode(page, item.left, item.top, item.html);
-        elemContainer.appendChild(wrap);
-      }
-    });
+    const ctx = getA4Context(page);
+    restoreContainerElements(elemContainer, pData.elements, ctx);
 
-    bindA4PageEvents(page, drawOverlayEl, elemContainer);
+    bindUnifiedDrawingEvents(page, elemContainer, () => getA4Context(page));
+    bindA4PageExtraEvents(page);
+
     slot.appendChild(page);
     pagesWrapper.appendChild(slot);
   });
@@ -1020,6 +1368,7 @@ function restoreA4State(jsonStr) {
   activeA4PageId = data.activePageId || (data.pages[0] ? data.pages[0].id : null);
   updateA4PageScales();
   updateHistoryButtons();
+  syncGlobalStrokes();
 }
 
 function createA4Page() {
@@ -1033,15 +1382,11 @@ function createA4Page() {
   const elemContainer = document.createElement('div');
   elemContainer.className = 'page-elements-container';
 
-  const drawOverlayEl = document.createElement('canvas');
-  drawOverlayEl.className = `page-draw-overlay ${currentMode === 'draw' ? 'active' : currentMode === 'eraser' ? 'active eraser' : currentMode === 'text' ? 'active text-mode' : ''}`;
-  drawOverlayEl.width = A4_WIDTH;
-  drawOverlayEl.height = A4_HEIGHT;
-
   page.appendChild(elemContainer);
-  page.appendChild(drawOverlayEl);
 
-  bindA4PageEvents(page, drawOverlayEl, elemContainer);
+  bindUnifiedDrawingEvents(page, elemContainer, () => getA4Context(page));
+  bindA4PageExtraEvents(page);
+
   slot.appendChild(page);
   pagesWrapper.appendChild(slot);
   activeA4PageId = page.dataset.pageId;
@@ -1053,418 +1398,31 @@ function createA4Page() {
 
 addPageBtn.addEventListener('click', () => createA4Page());
 
-function bindA4PageEvents(page, drawOverlayEl, elemContainer) {
-  const ctx = drawOverlayEl.getContext('2d');
-  let isPageInteracting = false;
-  let a4CurrentStroke = [];
-  let a4EraserModified = false;
-
-  function getA4Pos(e) {
-    const rect = drawOverlayEl.getBoundingClientRect();
-    const scaleFactor = A4_WIDTH / rect.width;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left) * scaleFactor,
-      y: (clientY - rect.top) * scaleFactor
-    };
-  }
-
-  function eraseA4(pos) {
-    const threshold = 16;
-    let modified = false;
-
-    elemContainer.querySelectorAll('.page-stroke-group').forEach((svg) => {
-      let paths = JSON.parse(svg.dataset.paths || '[]');
-      const prevLen = paths.length;
-      paths = paths.filter((path) => {
-        if (!path || path.length === 0) return false;
-        return !path.some((pt) => Math.hypot(pt.x - pos.x, pt.y - pos.y) < threshold);
-      });
-
-      if (paths.length !== prevLen) {
-        modified = true;
-        if (paths.length === 0) {
-          svg.remove();
-        } else {
-          renderA4StrokeSVG(svg, paths);
-        }
-      }
-    });
-
-    return modified;
-  }
-
-  function onPointerMove(e) {
-    if (e.touches && e.touches.length > 1) {
-      isPageInteracting = false;
-      a4CurrentStroke = [];
-      ctx.clearRect(0, 0, A4_WIDTH, A4_HEIGHT);
-      return;
-    }
-
-    if (!isPageInteracting || currentMode === 'idle' || currentMode === 'text') return;
-    const pos = getA4Pos(e);
-
-    if (currentMode === 'draw') {
-      a4CurrentStroke.push(pos);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    } else if (currentMode === 'eraser') {
-      if (eraseA4(pos)) a4EraserModified = true;
-    }
-  }
-
-  function onPointerUp() {
-    window.removeEventListener('mousemove', onPointerMove);
-    window.removeEventListener('mouseup', onPointerUp);
-    window.removeEventListener('touchmove', onPointerMove);
-    window.removeEventListener('touchend', onPointerUp);
-
-    if (isPageInteracting) {
-      if (currentMode === 'draw' && a4CurrentStroke.length >= 1) {
-        ctx.clearRect(0, 0, A4_WIDTH, A4_HEIGHT);
-
-        let lastEl = elemContainer.lastElementChild;
-        if (!lastEl || !lastEl.classList.contains('page-stroke-group')) {
-          lastEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          lastEl.setAttribute('class', 'page-stroke-group');
-          elemContainer.appendChild(lastEl);
-        }
-
-        const paths = JSON.parse(lastEl.dataset.paths || '[]');
-        paths.push(a4CurrentStroke);
-        renderA4StrokeSVG(lastEl, paths);
-        a4CurrentStroke = [];
-        saveA4State();
-      } else if (currentMode === 'eraser' && a4EraserModified) {
-        a4EraserModified = false;
-        saveA4State();
-      }
-    }
-    isPageInteracting = false;
-  }
-
-  function onPointerDown(e) {
-    if (e.touches && e.touches.length > 1) {
-      isPageInteracting = false;
-      a4CurrentStroke = [];
-      ctx.clearRect(0, 0, A4_WIDTH, A4_HEIGHT);
-      return;
-    }
-
+function bindA4PageExtraEvents(page) {
+  page.addEventListener('pointerdown', () => {
     activeA4PageId = page.dataset.pageId;
-    if (currentMode === 'idle' || currentMode === 'text') {
-      const pos = getA4Pos(e);
-      spawnA4Text(pos.x, pos.y, page, elemContainer);
-      return;
-    }
-
-    isPageInteracting = true;
-    const pos = getA4Pos(e);
-
-    if (currentMode === 'draw') {
-      a4CurrentStroke = [pos];
-      ctx.clearRect(0, 0, A4_WIDTH, A4_HEIGHT);
-      ctx.beginPath();
-      ctx.strokeStyle = 'orange';
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.moveTo(pos.x, pos.y);
-      ctx.lineTo(pos.x + 0.01, pos.y + 0.01);
-      ctx.stroke();
-    } else if (currentMode === 'eraser') {
-      a4EraserModified = eraseA4(pos);
-    }
-
-    window.addEventListener('mousemove', onPointerMove);
-    window.addEventListener('mouseup', onPointerUp);
-    window.addEventListener('touchmove', onPointerMove, { passive: false });
-    window.addEventListener('touchend', onPointerUp);
-  }
-
-  drawOverlayEl.addEventListener('mousedown', onPointerDown);
-  drawOverlayEl.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1 && currentMode !== 'idle') {
-      e.preventDefault();
-      onPointerDown(e);
-    }
-  }, { passive: false });
+  });
 
   page.addEventListener('dblclick', (e) => {
     if (e.target.closest('.img-wrapper') || e.target.closest('.text-wrapper')) return;
-    const pos = getA4Pos(e);
-    spawnA4Text(pos.x, pos.y, page, elemContainer);
+    const ctx = getA4Context(page);
+    const pos = ctx.toLocalPos(e);
+    ctx.spawnText(pos.x, pos.y);
   });
 }
 
-function spawnA4Text(x, y, page, elemContainer) {
-  const snappedY = Math.round(y / ROW_HEIGHT) * ROW_HEIGHT;
-  const textNode = createA4TextNode(page, x, snappedY, '');
-  elemContainer.appendChild(textNode);
-  textNode.querySelector('.floating-text').focus();
-  saveA4State();
-}
-
-function createA4TextNode(page, x, y, initialHtml) {
-  deselectAll();
-  const wrapper = document.createElement('div');
-  wrapper.className = 'text-wrapper selected';
-  wrapper.style.left = `${Math.min(x, A4_WIDTH - 120)}px`;
-  wrapper.style.top = `${Math.min(y, A4_HEIGHT - 40)}px`;
-
-  const grip = document.createElement('div');
-  grip.className = 'text-grip';
-  grip.innerHTML = '⋮⋮';
-  grip.title = 'Drag to move';
-
-  const box = document.createElement('div');
-  box.className = 'floating-text';
-  box.contentEditable = 'true';
-  box.spellcheck = false;
-  if (initialHtml) box.innerHTML = initialHtml;
-
-  wrapper.appendChild(grip);
-  wrapper.appendChild(box);
-
-  function onGripDragStart(e) {
-    e.stopPropagation();
-    e.preventDefault();
-    deselectAll();
-    wrapper.classList.add('selected');
-
-    const rect = page.getBoundingClientRect();
-    const scaleFactor = A4_WIDTH / rect.width;
-    const startX = e.touches ? e.touches[0].clientX : e.clientX;
-    const startY = e.touches ? e.touches[0].clientY : e.clientY;
-    const startLeft = wrapper.offsetLeft;
-    const startTop = wrapper.offsetTop;
-    let didMove = false;
-
-    function onGripDragMove(ev) {
-      ev.preventDefault();
-      didMove = true;
-      const curX = ev.touches ? ev.touches[0].clientX : ev.clientX;
-      const curY = ev.touches ? ev.touches[0].clientY : ev.clientY;
-      const dx = (curX - startX) * scaleFactor;
-      const dy = (curY - startY) * scaleFactor;
-
-      wrapper.style.left = `${Math.max(0, Math.min(A4_WIDTH - wrapper.offsetWidth, startLeft + dx))}px`;
-      wrapper.style.top = `${Math.max(0, Math.min(A4_HEIGHT - wrapper.offsetHeight, startTop + dy))}px`;
-    }
-
-    function onGripDragEnd() {
-      window.removeEventListener('mousemove', onGripDragMove);
-      window.removeEventListener('mouseup', onGripDragEnd);
-      window.removeEventListener('touchmove', onGripDragMove);
-      window.removeEventListener('touchend', onGripDragEnd);
-      if (didMove) saveA4State();
-    }
-
-    window.addEventListener('mousemove', onGripDragMove);
-    window.addEventListener('mouseup', onGripDragEnd);
-    window.addEventListener('touchmove', onGripDragMove, { passive: false });
-    window.addEventListener('touchend', onGripDragEnd);
+// Active Context Resolution Helper
+function getActiveContext() {
+  if (canvasView === 'infinite') {
+    return getInfiniteContext();
   }
-
-  grip.addEventListener('mousedown', onGripDragStart);
-  grip.addEventListener('touchstart', onGripDragStart, { passive: false });
-
-  wrapper.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setMode('idle');
-    deselectAll();
-    wrapper.classList.add('selected');
-  });
-
-  box.addEventListener('input', () => {
-    clearTimeout(textInputDebounce);
-    textInputDebounce = setTimeout(saveA4State, 300);
-  });
-
-  box.addEventListener('keydown', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') {
-      setTimeout(() => applyLinkParsing(box), 0);
-    }
-  });
-
-  box.addEventListener('paste', () => {
-    setTimeout(() => {
-      applyLinkParsing(box);
-      saveA4State();
-    }, 0);
-  });
-
-  box.addEventListener('click', (e) => {
-    const link = e.target.closest('a');
-    if (link) {
-      e.preventDefault();
-      e.stopPropagation();
-      window.open(link.href, '_blank');
-    }
-  });
-
-  box.addEventListener('blur', () => {
-    applyLinkParsing(box);
-    if (!box.textContent.trim()) wrapper.remove();
-    saveA4State();
-  });
-
-  return wrapper;
-}
-
-function createA4ImageNode(src, left, top, width, height, angle, page) {
-  deselectAll();
-  const wrapper = document.createElement('div');
-  wrapper.className = 'img-wrapper selected';
-  wrapper.style.left = `${left}px`;
-  wrapper.style.top = `${top}px`;
-  wrapper.style.width = `${width}px`;
-  wrapper.style.height = `${height}px`;
-  wrapper.style.transform = `rotate(${angle}deg)`;
-  wrapper.dataset.angle = angle.toString();
-
-  const img = document.createElement('img');
-  img.src = src;
-
-  ['tl', 'tr', 'bl', 'br', 'tc', 'bc', 'ml', 'mr', 'rot'].forEach((pos) => {
-    const handle = document.createElement('div');
-    handle.className = `handle ${pos}`;
-    handle.dataset.handle = pos;
-    wrapper.appendChild(handle);
-  });
-
-  wrapper.appendChild(img);
-  makeA4Transformable(wrapper, page);
-  return wrapper;
-}
-
-function makeA4Transformable(wrapper, page) {
-  let activeAction = null;
-  let startX, startY, startW, startH, startLeft, startTop, aspectRatio, scaleFactor;
-  let didTransform = false;
-
-  function onPointerDown(e, action) {
-    e.stopPropagation();
-    setMode('idle');
-    deselectAll();
-    wrapper.classList.add('selected');
-
-    const rect = page.getBoundingClientRect();
-    scaleFactor = A4_WIDTH / rect.width;
-
-    activeAction = action;
-    didTransform = false;
-    startX = e.touches ? e.touches[0].clientX : e.clientX;
-    startY = e.touches ? e.touches[0].clientY : e.clientY;
-    startW = wrapper.offsetWidth;
-    startH = wrapper.offsetHeight;
-    startLeft = wrapper.offsetLeft;
-    startTop = wrapper.offsetTop;
-    aspectRatio = startW / startH;
-
-    window.addEventListener('mousemove', onPointerMove);
-    window.addEventListener('mouseup', onPointerUp);
-    window.addEventListener('touchmove', onPointerMove, { passive: false });
-    window.addEventListener('touchend', onPointerUp);
-  }
-
-  function onPointerMove(e) {
-    if (!activeAction) return;
-    e.preventDefault();
-    didTransform = true;
-
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const dx = (clientX - startX) * scaleFactor;
-    const dy = (clientY - startY) * scaleFactor;
-
-    if (activeAction === 'drag') {
-      wrapper.style.left = `${Math.max(0, Math.min(A4_WIDTH - wrapper.offsetWidth, startLeft + dx))}px`;
-      wrapper.style.top = `${Math.max(0, Math.min(A4_HEIGHT - wrapper.offsetHeight, startTop + dy))}px`;
-      return;
-    }
-
-    if (activeAction === 'rot') {
-      const rect = wrapper.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const radians = Math.atan2(clientY - centerY, clientX - centerX);
-      let degrees = radians * (180 / Math.PI) + 90;
-      wrapper.style.transform = `rotate(${degrees}deg)`;
-      wrapper.dataset.angle = degrees.toString();
-      return;
-    }
-
-    let newW = startW;
-    let newH = startH;
-    let newLeft = startLeft;
-    let newTop = startTop;
-
-    switch (activeAction) {
-      case 'br':
-        newW = Math.max(40, startW + dx);
-        newH = newW / aspectRatio;
-        break;
-      case 'bl':
-        newW = Math.max(40, startW - dx);
-        newH = newW / aspectRatio;
-        newLeft = startLeft + (startW - newW);
-        break;
-      case 'tr':
-        newW = Math.max(40, startW + dx);
-        newH = newW / aspectRatio;
-        newTop = startTop + (startH - newH);
-        break;
-      case 'tl':
-        newW = Math.max(40, startW - dx);
-        newH = newW / aspectRatio;
-        newLeft = startLeft + (startW - newW);
-        newTop = startTop + (startH - newH);
-        break;
-      case 'mr':
-        newW = Math.max(40, startW + dx);
-        break;
-      case 'ml':
-        newW = Math.max(40, startW - dx);
-        newLeft = startLeft + (startW - newW);
-        break;
-      case 'bc':
-        newH = Math.max(40, startH + dy);
-        break;
-      case 'tc':
-        newH = Math.max(40, startH - dy);
-        newTop = startTop + (startH - newH);
-        break;
-    }
-
-    wrapper.style.width = `${newW}px`;
-    wrapper.style.height = `${newH}px`;
-    wrapper.style.left = `${newLeft}px`;
-    wrapper.style.top = `${newTop}px`;
-  }
-
-  function onPointerUp() {
-    activeAction = null;
-    window.removeEventListener('mousemove', onPointerMove);
-    window.removeEventListener('mouseup', onPointerUp);
-    window.removeEventListener('touchmove', onPointerMove);
-    window.removeEventListener('touchend', onPointerUp);
-    if (didTransform) saveA4State();
-  }
-
-  wrapper.addEventListener('mousedown', (e) => onPointerDown(e, 'drag'));
-  wrapper.addEventListener('touchstart', (e) => onPointerDown(e, 'drag'), { passive: false });
-
-  wrapper.querySelectorAll('.handle').forEach((h) => {
-    h.addEventListener('mousedown', (e) => onPointerDown(e, h.dataset.handle));
-    h.addEventListener('touchstart', (e) => onPointerDown(e, h.dataset.handle), { passive: false });
-  });
+  let page = document.querySelector(`.a4-page[data-page-id="${activeA4PageId}"]`) || document.querySelector('.a4-page');
+  if (!page) page = createA4Page();
+  return getA4Context(page);
 }
 
 // ==========================================
-// 5. VIEW SWITCHING & UNIFIED CONTROLS
+// 8. VIEW SWITCHING & UNIFIED CONTROLS
 // ==========================================
 function updateHistoryButtons() {
   if (canvasView === 'infinite') {
@@ -1481,8 +1439,7 @@ function flushTextDebounce() {
   if (textInputDebounce) {
     clearTimeout(textInputDebounce);
     textInputDebounce = null;
-    if (canvasView === 'infinite') saveInfiniteState();
-    else saveA4State();
+    getActiveContext().saveState();
   }
 }
 
@@ -1530,7 +1487,6 @@ viewInfiniteBtn.addEventListener('click', () => {
 
   updateContainerCursor();
   updateHistoryButtons();
-  resizeOverlay();
 });
 
 viewA4Btn.addEventListener('click', () => {
@@ -1586,8 +1542,32 @@ window.addEventListener('keydown', (e) => {
       if (selected) {
         e.preventDefault();
         selected.remove();
-        if (canvasView === 'infinite') saveInfiniteState();
-        else saveA4State();
+        getActiveContext().saveState();
+      }
+    }
+  }
+
+  // Layer Stacking Shortcuts: [ / ] and Shift+[ / Shift+]
+  if (!isTyping) {
+    const selected = document.querySelector('.img-wrapper.selected, .text-wrapper.selected');
+    if (selected && selected.parentElement) {
+      const container = selected.parentElement;
+      if (e.key === ']' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        bringToFront(container, selected);
+        getActiveContext().saveState();
+      } else if (e.key === '[' && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        sendToBack(container, selected);
+        getActiveContext().saveState();
+      } else if (e.key === ']') {
+        e.preventDefault();
+        bringForward(container, selected);
+        getActiveContext().saveState();
+      } else if (e.key === '[') {
+        e.preventDefault();
+        sendBackward(container, selected);
+        getActiveContext().saveState();
       }
     }
   }
@@ -1602,30 +1582,29 @@ window.addEventListener('keyup', (e) => {
 });
 
 // Image Upload Handling
-function addImageToActiveCanvas(src, dropX, dropY) {
-  if (canvasView === 'infinite') {
-    const posX = dropX !== undefined ? dropX : -panX / zoom + 120;
-    const posY = dropY !== undefined ? dropY : -panY / zoom + 120;
-    const imgNode = createInfiniteImageNode(src, posX, posY, 240, 180, 0);
-    elementsContainer.appendChild(imgNode);
-    saveInfiniteState();
+function addImageToActiveCanvas(src, dropClientX, dropClientY) {
+  const ctx = getActiveContext();
+  let x, y;
+  if (dropClientX !== undefined && dropClientY !== undefined) {
+    const local = ctx.toLocalPos({ clientX: dropClientX, clientY: dropClientY });
+    x = local.x - 120;
+    y = local.y - 90;
   } else {
-    let targetPage = document.querySelector(`.a4-page[data-page-id="${activeA4PageId}"]`) || document.querySelector('.a4-page');
-    if (!targetPage) targetPage = createA4Page();
-    const elemContainer = targetPage.querySelector('.page-elements-container');
-    const posX = dropX !== undefined ? dropX : 60;
-    const posY = dropY !== undefined ? dropY : 60;
-    const imgNode = createA4ImageNode(src, posX, posY, 240, 180, 0, targetPage);
-    elemContainer.appendChild(imgNode);
-    saveA4State();
+    if (ctx.type === 'infinite') {
+      x = -panX / zoom + 120;
+      y = -panY / zoom + 120;
+    } else {
+      x = 60;
+      y = 60;
+    }
   }
-  setMode('idle');
+  ctx.addImage(src, x, y);
 }
 
-function processImageFile(file, dropX, dropY) {
+function processImageFile(file, dropClientX, dropClientY) {
   if (!file || !file.type.startsWith('image/')) return;
   const reader = new FileReader();
-  reader.onload = (e) => addImageToActiveCanvas(e.target.result, dropX, dropY);
+  reader.onload = (e) => addImageToActiveCanvas(e.target.result, dropClientX, dropClientY);
   reader.readAsDataURL(file);
 }
 
@@ -1641,24 +1620,7 @@ document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => {
   e.preventDefault();
   if (e.dataTransfer.files.length > 0) {
-    const file = e.dataTransfer.files[0];
-    if (canvasView === 'infinite') {
-      const worldPos = screenToWorld(e.clientX, e.clientY);
-      processImageFile(file, worldPos.x - 120, worldPos.y - 90);
-    } else {
-      const elem = document.elementFromPoint(e.clientX, e.clientY);
-      const page = elem ? elem.closest('.a4-page') : null;
-      if (page) {
-        activeA4PageId = page.dataset.pageId;
-        const rect = page.getBoundingClientRect();
-        const scaleFactor = A4_WIDTH / rect.width;
-        const dropX = (e.clientX - rect.left) * scaleFactor - 120;
-        const dropY = (e.clientY - rect.top) * scaleFactor - 90;
-        processImageFile(file, Math.max(0, dropX), Math.max(0, dropY));
-      } else {
-        processImageFile(file);
-      }
-    }
+    processImageFile(e.dataTransfer.files[0], e.clientX, e.clientY);
   }
 });
 
@@ -1676,6 +1638,13 @@ window.addEventListener('click', (e) => {
   }
 });
 
+window.addEventListener('resize', () => {
+  if (canvasView === 'a4') {
+    updateA4PageScales();
+  }
+});
+
 // Initial Setup
+updateContainerCursor();
 saveInfiniteState();
 createA4Page();

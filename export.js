@@ -50,59 +50,82 @@ if (a4ExportModalEl) {
 // 1. INFINITE CANVAS EXPORT (STANDALONE HTML)
 // ------------------------------------------
 function exportInfiniteCanvasHTML() {
-  const strokes = strokePaths || [];
-  const elements = [];
-
   const elemContainer = document.getElementById('elements-container');
+  let orderedItemsHtml = '';
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
   if (elemContainer) {
     Array.from(elemContainer.children).forEach((child) => {
-      if (child.classList.contains('img-wrapper')) {
+      if (child.dataset.hidden === 'true') return;
+      const zIndex = parseInt(child.style.zIndex, 10) || 10;
+
+      if (child.classList.contains('stroke-group') || child.classList.contains('page-stroke-group')) {
+        const paths = JSON.parse(child.dataset.paths || '[]');
+        if (paths.length > 0) {
+          let svgPathsHtml = '';
+          paths.forEach((path) => {
+            if (!path || path.length === 0) return;
+            let d = '';
+            if (path.length === 1) {
+              d = `M ${path[0].x} ${path[0].y} L ${path[0].x + 0.01} ${path[0].y + 0.01}`;
+            } else {
+              d = path.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
+            }
+            svgPathsHtml += `        <path d="${d}" stroke="orange" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />\n`;
+
+            path.forEach((pt) => {
+              if (pt.x < minX) minX = pt.x;
+              if (pt.y < minY) minY = pt.y;
+              if (pt.x > maxX) maxX = pt.x;
+              if (pt.y > maxY) maxY = pt.y;
+            });
+          });
+
+          orderedItemsHtml += `
+      <svg style="position: absolute; top: -50000px; left: -50000px; width: 100000px; height: 100000px; overflow: visible; pointer-events: none; z-index: ${zIndex};" viewBox="-50000 -50000 100000 100000">
+${svgPathsHtml}      </svg>\n`;
+        }
+      } else if (child.classList.contains('img-wrapper')) {
         const img = child.querySelector('img');
         if (img && img.src) {
-          elements.push({
-            type: 'image',
-            src: img.src,
-            left: parseFloat(child.style.left) || 0,
-            top: parseFloat(child.style.top) || 0,
-            width: parseFloat(child.style.width) || 240,
-            height: parseFloat(child.style.height) || 180,
-            angle: parseFloat(child.dataset.angle) || 0
-          });
+          const left = parseFloat(child.style.left) || 0;
+          const top = parseFloat(child.style.top) || 0;
+          const width = parseFloat(child.style.width) || 240;
+          const height = parseFloat(child.style.height) || 180;
+          const angle = parseFloat(child.dataset.angle) || 0;
+
+          const elRight = left + width;
+          const elBottom = top + height;
+          if (left < minX) minX = left;
+          if (top < minY) minY = top;
+          if (elRight > maxX) maxX = elRight;
+          if (elBottom > maxY) maxY = elBottom;
+
+          orderedItemsHtml += `
+      <div class="export-img-wrapper" style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; transform: rotate(${angle}deg); transform-origin: center center; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); z-index: ${zIndex};">
+        <img src="${img.src}" style="width: 100%; height: 100%; object-fit: fill; display: block; border-radius: 4px;" alt="Canvas Image" />
+      </div>\n`;
         }
       } else if (child.classList.contains('text-wrapper')) {
         const box = child.querySelector('.floating-text');
         if (box && box.textContent.trim()) {
-          elements.push({
-            type: 'text',
-            left: parseFloat(child.style.left) || 0,
-            top: parseFloat(child.style.top) || 0,
-            html: box.innerHTML
-          });
+          const left = parseFloat(child.style.left) || 0;
+          const top = parseFloat(child.style.top) || 0;
+          const elRight = left + 300;
+          const elBottom = top + 80;
+          if (left < minX) minX = left;
+          if (top < minY) minY = top;
+          if (elRight > maxX) maxX = elRight;
+          if (elBottom > maxY) maxY = elBottom;
+
+          orderedItemsHtml += `
+      <div class="export-text-wrapper" style="position: absolute; left: ${left}px; top: ${top}px; max-width: 800px; min-width: 60px; background: rgba(30, 30, 30, 0.75); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 16px; line-height: 26px; color: #f0f0f0; word-break: break-word; white-space: pre-wrap; z-index: ${zIndex};">
+        ${box.innerHTML}
+      </div>\n`;
         }
       }
     });
   }
-
-  // Compute bounding box
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
-  strokes.forEach((stroke) => {
-    (stroke.points || []).forEach((pt) => {
-      if (pt.x < minX) minX = pt.x;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.x > maxX) maxX = pt.x;
-      if (pt.y > maxY) maxY = pt.y;
-    });
-  });
-
-  elements.forEach((el) => {
-    const elRight = el.left + (el.width || 300);
-    const elBottom = el.top + (el.height || 100);
-    if (el.left < minX) minX = el.left;
-    if (el.top < minY) minY = el.top;
-    if (elRight > maxX) maxX = elRight;
-    if (elBottom > maxY) maxY = elBottom;
-  });
 
   if (minX === Infinity) {
     minX = 0; minY = 0; maxX = 1000; maxY = 700;
@@ -113,33 +136,6 @@ function exportInfiniteCanvasHTML() {
   const viewHeight = Math.max(600, maxY - minY + padding * 2);
   const originX = minX - padding;
   const originY = minY - padding;
-
-  let svgPathsHtml = '';
-  strokes.forEach((stroke) => {
-    if (!stroke.points || stroke.points.length === 0) return;
-    let d = '';
-    if (stroke.points.length === 1) {
-      d = `M ${stroke.points[0].x} ${stroke.points[0].y} L ${stroke.points[0].x + 0.01} ${stroke.points[0].y + 0.01}`;
-    } else {
-      d = stroke.points.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-    }
-    svgPathsHtml += `      <path d="${d}" stroke="${stroke.strokeColor || 'orange'}" stroke-width="${stroke.strokeWidth || '4'}" stroke-linecap="round" stroke-linejoin="round" fill="none" />\n`;
-  });
-
-  let elementsHtml = '';
-  elements.forEach((el) => {
-    if (el.type === 'image') {
-      elementsHtml += `
-      <div class="export-img-wrapper" style="position: absolute; left: ${el.left}px; top: ${el.top}px; width: ${el.width}px; height: ${el.height}px; transform: rotate(${el.angle}deg); transform-origin: center center; border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);">
-        <img src="${el.src}" style="width: 100%; height: 100%; object-fit: fill; display: block; border-radius: 4px;" alt="Canvas Image" />
-      </div>`;
-    } else if (el.type === 'text') {
-      elementsHtml += `
-      <div class="export-text-wrapper" style="position: absolute; left: ${el.left}px; top: ${el.top}px; max-width: 800px; min-width: 60px; background: rgba(30, 30, 30, 0.75); backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 4px 8px; font-size: 16px; line-height: 26px; color: #f0f0f0; word-break: break-word; white-space: pre-wrap;">
-        ${el.html}
-      </div>`;
-    }
-  });
 
   const htmlDocument = `<!DOCTYPE html>
 <html lang="en">
@@ -250,12 +246,7 @@ function exportInfiniteCanvasHTML() {
 
   <div id="viewer-container">
     <div id="viewer-world">
-      <svg class="strokes-layer">
-${svgPathsHtml}      </svg>
-      <div class="elements-layer">
-${elementsHtml}
-      </div>
-    </div>
+${orderedItemsHtml}    </div>
   </div>
 
   <div class="hud">
@@ -387,7 +378,8 @@ function exportA4PagesPDF() {
     if (!elemContainer) return;
 
     Array.from(elemContainer.children).forEach((child) => {
-      if (child.classList.contains('page-stroke-group')) {
+      if (child.dataset.hidden === 'true') return;
+      if (child.classList.contains('page-stroke-group') || child.classList.contains('stroke-group')) {
         const paths = JSON.parse(child.dataset.paths || '[]');
         doc.setDrawColor(255, 165, 0);
         doc.setLineWidth(3);
@@ -544,22 +536,30 @@ function exportA4PagesHTML() {
     const elemContainer = page.querySelector('.page-elements-container');
     if (!elemContainer) return;
 
-    let pageSvgPaths = '';
-    let pageElementsHtml = '';
+    let orderedPageItemsHtml = '';
 
     Array.from(elemContainer.children).forEach((child) => {
-      if (child.classList.contains('page-stroke-group')) {
+      if (child.dataset.hidden === 'true') return;
+      const zIndex = parseInt(child.style.zIndex, 10) || 10;
+
+      if (child.classList.contains('page-stroke-group') || child.classList.contains('stroke-group')) {
         const paths = JSON.parse(child.dataset.paths || '[]');
-        paths.forEach((path) => {
-          if (!path || path.length === 0) return;
-          let d = '';
-          if (path.length === 1) {
-            d = `M ${path[0].x} ${path[0].y} L ${path[0].x + 0.01} ${path[0].y + 0.01}`;
-          } else {
-            d = path.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
-          }
-          pageSvgPaths += `        <path d="${d}" stroke="orange" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />\n`;
-        });
+        if (paths.length > 0) {
+          let pageSvgPaths = '';
+          paths.forEach((path) => {
+            if (!path || path.length === 0) return;
+            let d = '';
+            if (path.length === 1) {
+              d = `M ${path[0].x} ${path[0].y} L ${path[0].x + 0.01} ${path[0].y + 0.01}`;
+            } else {
+              d = path.reduce((acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`, '');
+            }
+            pageSvgPaths += `        <path d="${d}" stroke="orange" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none" />\n`;
+          });
+          orderedPageItemsHtml += `
+      <svg class="a4-svg-layer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: ${zIndex};" viewBox="0 0 794 1123">
+${pageSvgPaths}      </svg>\n`;
+        }
       } else if (child.classList.contains('img-wrapper')) {
         const img = child.querySelector('img');
         if (img && img.src) {
@@ -569,32 +569,27 @@ function exportA4PagesHTML() {
           const height = parseFloat(child.style.height) || 180;
           const angle = parseFloat(child.dataset.angle) || 0;
 
-          pageElementsHtml += `
-        <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; transform: rotate(${angle}deg); transform-origin: center center; border-radius: 4px;">
-          <img src="${img.src}" style="width: 100%; height: 100%; object-fit: fill; display: block; border-radius: 4px;" alt="Page Image" />
-        </div>`;
+          orderedPageItemsHtml += `
+      <div style="position: absolute; left: ${left}px; top: ${top}px; width: ${width}px; height: ${height}px; transform: rotate(${angle}deg); transform-origin: center center; border-radius: 4px; z-index: ${zIndex};">
+        <img src="${img.src}" style="width: 100%; height: 100%; object-fit: fill; display: block; border-radius: 4px;" alt="Page Image" />
+      </div>\n`;
         }
       } else if (child.classList.contains('text-wrapper')) {
         const box = child.querySelector('.floating-text');
         if (box && box.textContent.trim()) {
           const left = parseFloat(child.style.left) || 0;
           const top = parseFloat(child.style.top) || 0;
-          pageElementsHtml += `
-        <div style="position: absolute; left: ${left}px; top: ${top}px; max-width: 700px; min-width: 60px; font-size: 16px; line-height: 28px; color: #111; word-break: break-word; white-space: pre-wrap;">
-          ${box.innerHTML}
-        </div>`;
+          orderedPageItemsHtml += `
+      <div style="position: absolute; left: ${left}px; top: ${top}px; max-width: 700px; min-width: 60px; font-size: 16px; line-height: 28px; color: #111; word-break: break-word; white-space: pre-wrap; z-index: ${zIndex};">
+        ${box.innerHTML}
+      </div>\n`;
         }
       }
     });
 
     pagesHtml += `
     <div class="a4-sheet" data-page="${pageIdx + 1}">
-      <svg class="a4-svg-layer">
-${pageSvgPaths}      </svg>
-      <div class="a4-content-layer">
-${pageElementsHtml}
-      </div>
-      <div class="page-num">Page ${pageIdx + 1}</div>
+${orderedPageItemsHtml}      <div class="page-num">Page ${pageIdx + 1}</div>
     </div>\n`;
   });
 
